@@ -1,0 +1,98 @@
+­​​Method
+Participants
+Thirty adults aged  xx will be recruited from the University of Copenhagen participant pool. All participants will provide informed consent and receive a base payment of x DKK per session plus performance-based bonus (x DKK per point earned in the task, expected bonus x DKK per session). Participants will be screened for normal or corrected-to-normal visual acuity and normal color vision using Ishihara plates. We will replace participants who meet any of the following exclusion criteria applied at the end of data collection: prospective memory hit rate below 20% in either PM condition (indicating failure to engage with the PM task), ongoing-task accuracy below 60% across baseline sessions (indicating failure to learn the task), or anticipatory responses (RT < 200 ms) exceeding 15% of trials.
+Sample size rationale. Prior work using the PMDC framework with hierarchical Bayesian LBA (Brown & Heathcote, 2008) estimation has obtained stable parameter estimates with 20–30 participants (Strickland et al., 2018; Horn & Bayen, 2015). Our within-subjects design with ~600 trials per PM condition per participant provides approximately 85 correct-response trials per accumulator per condition, exceeding the minimum of 40–50 trials recommended for individual-level RT distribution estimation under hierarchical priors (Annis et al., 2017). PROVIDING IF USE HIERARCHICAL BAYESIAN METHOD 
+Apparatus and Stimuli
+The experiment will be programmed in PsychoPy (v2022.1.3) and presented on a 24-inch LCD monitor (1920 × 1080 resolution, 100 Hz refresh rate). Participants will sit approximately 60 cm from the screen. Responses are collected via a standard keyboard or response box.
+Multiple Cue Paradigm (MCP) Display
+On each trial, three colored circles (4.0° visual angle diameter) appear in an equilateral triangle formation centered on screen, with the top circle positioned at screen center and the two bottom circles displaced approximately 5.5° below and 4.8° to the left and right. Three circle colors are used—red (RGB: 220, 50, 50), blue (RGB: 50, 100, 220), and green (RGB: 50, 180, 80)—selected for mutual discriminability and accessibility for participants with normal color vision. Each color is mapped to a unique response key: red → ‘N’ (right index fingerfinger), blue → ‘J’ (right middle finger), green → ‘K (right ring finger). PUTTING ALL ON RIGHT HAND The assignment of spatial position to color is counterbalanced across participants.
+On each trial, one or two circles display a black Arabic numeral (x size, centered within the circle) indicating the reward value associated with that circle. Reward values are drawn from the set {1, 2, 3}. Participants’ task is to press the key corresponding to the color of the circle they wish to select.
+Trial Types
+Two classes of colored cue response paradigm (CCRP) trials are used. Single-cue trials present one rewarded circle (value 1, 2, or 3) and two empty circles. The participant’s only option is to select the rewarded circle; these trials index basic color–key mapping speed and reward-magnitude sensitivity. Dual-cue trials present two rewarded circles with different values and one empty circle. The reward-value pairings are: 2 versus 1, 3 versus 1, and 3 versus 2. These trials require competitive selection between two rewarded options and are the primary window into the intention selection mechanism. Across both classes, there are six CCRP trial types (3 single-cue + 3 dual-cue).
+Prospective Memory Cues
+The PM manipulation introduces an additional intention—to press the spacebar with the left hand when a designated cue appears—superimposed on the ongoing CCRP task. Two types of PM cues are used, distinguished by their relationship to the processing demands of the ongoing task.
+Focal PM cue. On focal PM trials, one circle is rendered in orange (RGB: 240, 150, 30) instead of its assigned task color (red, blue, or green). The circle retains its normal content (reward numeral or empty). Because the ongoing CCRP task requires identifying circle colors to determine the correct response key, the orange circle is processed through the same color-identification channel engaged by the task, satisfying the criterion for focality (Einstein & McDaniel, 2005).  
+Nonfocal PM cue. On nonfocal PM trials, one circle is surrounded by a dashed outline (3-pixel dash, 3-pixel gap, white color) superimposed over the standard solid circle border. The circle retains its normal color and content. Because the ongoing CCRP task does not require processing border style—participants identify circles by fill color and read numerals within—detecting the dashed outline requires monitoring an additional perceptual feature dimension beyond what the task demands. This satisfies the criterion for nonfocality. The participant should press the spacebar instead of making an CCRP response.
+Design note on the asymmetry. The focal and nonfocal cues differ not only in processing dimension but also in their structural consequence for the CCRP task: focal cues remove one option from the CCRP competition (the orange circle cannot be selected for CCRP), whereas nonfocal cues leave the CCRP choice set intact. This asymmetry is a deliberate feature of the design. It creates a stronger test of the capacity-sharing account: if nonfocal monitoring produces CCRP costs despite leaving the choice set intact, the cost must reflect genuine resource competition rather than mere reduction in response options. Conversely, if focal cues produce minimal CCRP cost despite reducing the effective choice set, this confirms that focal PM retrieval operates with minimal capacity demand. The asymmetry is analyzed explicitly (see Analysis section).
+Design
+The experiment uses a within-subjects design with three blocked PM conditions: baseline (no PM task), focal PM, and nonfocal PM. The baseline condition always precedes the PM conditions to establish stable CCRP performance before introducing the additional task. The order of the two PM conditions is counterbalanced across participants: half complete focal PM first, half complete nonfocal PM first. Within each PM condition, the CCRP trial type (single-cue vs. dual-cue, with specific reward values) is varied within blocks. PM cues appear on 15% of trials within PM blocks, with the remaining 85% serving as non-PM ongoing-task trials.
+The critical comparisons are: (a) CCRP performance on non-PM trials across the three conditions (baseline vs. focal block vs. nonfocal block), indexing the monitoring cost of maintaining the PM intention; (b) CCRP performance on PM-present versus PM-absent trials within PM blocks, indexing the trial-level cost of PM cue processing; and (c) PM hit rate and response time across focal and nonfocal conditions.
+Procedure
+Participants complete the experiment across three testing days spaced 1–3 days apart, with total testing time of approximately 8–9 hours including breaks and instructions. The experiment is divided into 10 sessions: 4 training sessions, 2 baseline sessions, 2 sessions of the first PM condition, and 2 sessions of the second PM condition.
+Day 1: Training and Baseline (~3.5 hours)
+Training Session 1 (80 trials, four 20-trial blocks). Single-cue single-circle trials only. Circles appear at screen center (one at a time) rather than in the triangular formation, to isolate color–key learning. Reward values 1–3 appear with equal frequency across the three colors. A reference chart showing the color–key mapping remains visible at screen bottom throughout. Correct responses earn points displayed as feedback; errors display the correct key.
+Training Session 2 (80 trials, four 20-trial blocks). Single-cue trials only. The display now uses the full triangular formation with all three circles visible (one rewarded, two empty). Spatial positions of colors are randomized on each trial. The mapping chart remains visible.
+Training Session 3 (120 trials, four 30-trial blocks). Full protocol: both single-cue and dual-cue trials appear in the standard distribution (see Trial Distribution below). The mapping chart remains visible. This session introduces competitive selection for the first time.
+Training Session 4 (120 trials, four 30-trial blocks). Identical to Session 3 except the mapping chart is removed. Participants must rely on internalized color–key associations. A criterion of ≥75% accuracy in the final block is required to proceed; participants not meeting criterion repeat Session 4.
+Baseline Session 1 (360 trials, six 60-trial blocks). Standard CCRP without any PM instructions or cues. Full trial type distribution. Breaks of at least 30 seconds are enforced between blocks, with self-paced additional rest. This session establishes baseline CCRP performance parameters.
+Day 2: Baseline Completion and First PM Condition (~3.5 hours)
+Baseline Session 2 (360 trials, six 60-trial blocks). Identical to Baseline Session 1. Together, the two baseline sessions yield 720 trials (120 per CCRP trial type), providing robust data for estimating individual baseline LBA parameters.
+PM Introduction and Practice. Before the first PM session, participants receive written and verbal instructions about the PM task. For the focal condition, they are told: “In addition to the original task, there is a secondary goal. On some trials, one of the circles will appear in orange instead of its usual color. Whenever you see an orange circle, press the spacebar instead of your normal response. Catching these orange circles earns you 5 bonus points.” For the nonfocal condition, they are told: “On some trials, one of the circles will have a dashed outline instead of the normal solid outline. Whenever you see a dashed-outline circle, press the spacebar instead of your normal response. Catching these dashed-outline circles earns you 5 bonus points.” Participants then complete a practice block of 40 trials (30% PM frequency, 12 PM trials) to familiarize themselves with the dual-task demands. Performance is reviewed with the experimenter before proceeding.
+PM Condition 1, Sessions 1–2 (360 trials each, six 60-trial blocks). Standard CCRP with PM cues appearing on 15% of trials (approximately 54 PM trials per session, 108 across the two sessions). PM cues are distributed uniformly across blocks and across the three circle positions. Of the PM trials, approximately half have the PM cue on a rewarded circle and half on an unrewarded circle, enabling separate analysis of PM and reward interaction. The specific PM cue type (focal or nonfocal) depends on counterbalancing assignment.
+Day 3: Second PM Condition (~2.5 hours)
+PM Re-introduction and Practice. Before beginning the second PM condition, participants receive instructions for the alternate PM cue type (focal vs. nonfocal), followed by a 40-trial practice block (30% PM frequency). Performance is reviewed before proceeding.
+PM Condition 2, Sessions 1–2 (360 trials each, six 60-trial blocks). Same structure as PM Condition 1, with the alternate PM cue type.
+Trial Timing
+Each trial begins with a central fixation cross (500 ms), followed by the stimulus display (three colored circles with reward numerals or empty interiors). The display remains on screen until the participant responds or 3000 ms elapses. If no response is made within 3000 ms, the trial is coded as an omission and feedback reads “TOO SLOW” in red. Following a valid response, feedback is displayed for 700 ms: correct CCRP responses show “+[X] points! Accumulated Reward: [Y] dkk” (where X is the selected circle’s reward value, Y is the current accumulated reward); incorrect CCRP responses (selecting a non-optimal or unrewarded circle) show “+[X] points” (where X depends on the selected reward); correct PM responses show “PM CUE CAUGHT! +5 points”; missed PM cues display “MISSED PM CUE”; false alarm PM responses (spacebar pressed on non-PM trials) show “No PM cue present +[X] points” (where X depends on the current selected reward). A blank inter-trial interval of xx ms (± 50 ms jitter) separates trials. Mean trial duration is approximately 2.5–3.0 seconds.
+Trial Distribution
+Within each 60-trial block, the six CCRP trial types are presented with approximately equal frequency: 30 single-cue trials (10 per reward level: 10 at value 1, 10 at value 2, 10 at value 3) and 30 dual-cue trials (10 per reward combination: 10 at 2v1, 10 at 3v1, 10 at 3v2), with color–position assignments randomized within each type. The allocation ensures that each color appears as the optimal (highest-reward) option equally often across a session.
+In PM blocks, 9 of the 60 trials per block (15%) are designated as PM trials, drawn proportionally from the six CCRP trial types to maintain the underlying CCRP distribution. The location of the PM cue (which of the three circles carries the cue) is balanced across blocks. Approximately half of PM cues appear on a rewarded circle and half on an unrewarded circle, counterbalanced across blocks.
+The following table summarizes the complete trial counts across phases.
+
+Phase
+Sessions
+Trials/Session
+Total Trials
+PM Trials
+Non-PM Trials
+Training 1–2
+2
+80
+160
+—
+160
+Training 3–4
+2
+120
+240
+—
+240
+Baseline
+2
+360
+720
+—
+720
+Focal PM
+2
+360
+720
+108
+612
+Nonfocal PM
+2
+360
+720
+108
+612
+Total
+10
+—
+2,560
+216
+2,344
+Table 1. Trial distribution across experimental phases. PM trial counts are approximate (15% of block trials, balanced across blocks).
+Dependent Measures and Planned Analyses
+The primary dependent measures are: (a) CCRP accuracy (proportion of trials selecting the optimal, i.e., highest-reward, circle), (b) CCRP response time on correct trials, (c) PM hit rate (proportion of PM cues correctly detected), (d) PM false alarm rate (proportion of non-PM trials receiving a spacebar response), and (e) the PM monitoring cost, defined as the RT difference between non-PM trials in PM blocks versus matched trials in the baseline condition.
+The core theoretical test centers on the Model of Intention Selection (MIS; Grünbaum et al., 2021). Under MIS, multiple intentions race for selection with processing rates v_i = (w_i / Σw_j) × C, where w_i reflects the attentional weight assigned to intention i, and C is the total processing capacity shared across all competing intentions. In the standard MCP without PM, the three colored circles compete within this capacity-limited system, with reward values driving the attentional weights: higher-reward circles receive larger weights and therefore faster processing rates, at the expense of lower-reward competitors.
+The critical question is how a PM intention enters this architecture. We fit three competing extensions of MIS to the combined choice and RT data across conditions. The capacity-integrated model treats the PM intention as an additional competitor within MIS's biased competition: the PM accumulator draws from the same shared capacity C, so that its processing rate is v_PM = (w_PM / Σw_j) × C. Because capacity is shared, adding the PM competitor necessarily reduces the processing rates available to the MCP accumulators — the denominator grows. This model predicts that nonfocal PM, which requires sustained monitoring (i.e., maintaining a high w_PM across all trials), should produce larger reductions in MCP processing rates than focal PM, which only activates w_PM reactively upon cue encounter. Crucially, this model implements PM cost through the same biased competition mechanism that governs value-based selection, with no free parameters outside MIS.
+The threshold-control model keeps the MIS biased competition structure intact for the CCRP accumulators but implements PM through an independent decision threshold mechanism outside MIS. Here, the PM accumulator races in parallel but does not draw from MIS's shared capacity C. PM effects on MCP performance arise solely because participants raise their MCP decision thresholds (response caution) to avoid preempting the PM decision. MCP processing rates remain governed by the standard MIS equations with an unchanged capacity parameter. This model predicts that PM cost is purely strategic slowing — RT increases without accuracy loss — and that focal and nonfocal PM produce similar costs because both require the same threshold adjustment.
+The hybrid model combines both mechanisms: PM monitoring in the nonfocal condition draws from MIS's shared capacity (reducing MCP processing rates through biased competition), while additionally, participants adjust decision thresholds in both PM conditions as a proactive control strategy. This model predicts a dissociation: focal PM produces threshold-mediated slowing only (MIS processing rates preserved), whereas nonfocal PM produces both threshold adjustment and genuine capacity sharing within MIS (processing rates reduced, particularly for high-reward circles that had commanded the largest share of capacity at baseline).
+The critical diagnostic is whether the capacity parameter C and the attentional weight distribution across MCP accumulators change between baseline, focal PM, and nonfocal PM conditions. If the capacity-integrated model wins, this establishes that PM intention selection operates through the same biased competition mechanism that MIS proposes for value-based selection — PM is not a separate system but an additional competitor consuming MIS capacity. If the threshold-control model wins, this suggests that MIS's capacity-limited competition is specific to value-based intention selection and that PM operates through a qualitatively different control mechanism. If the hybrid model wins, this reveals that the boundary of MIS capacity sharing depends on processing demands: automatic (focal) PM retrieval bypasses MIS capacity, but effortful (nonfocal) PM monitoring enters the same competitive pool, providing a principled account of when and why MIS capacity limitations are engaged.
+References
+Annis, J., Miller, B. J., & Palmeri, T. J. (2017). Bayesian inference with Stan: A tutorial on adding custom distributions. Behavior Research Methods, 49(3), 863–886. https://doi.org/10.3758/s13428-016-0746-9
+Brown, S. D., & Heathcote, A. (2008). The simplest complete model of choice response time: Linear ballistic accumulation. Cognitive Psychology, 57(3), 153–178. https://doi.org/10.1016/j.cogpsych.2007.12.002
+Einstein, G. O., & McDaniel, M. A. (2005). Prospective memory: Multiple retrieval processes. Current Directions in Psychological Science, 14(6), 286–290. https://doi.org/10.1111/j.0963-7214.2005.00382.x
+Strickland, L., Loft, S., Remington, R. W., & Heathcote, A. (2018). Racing to remember: A theory of decision control in event-based prospective memory. Psychological Review, 125(6), 851–887. https://doi.org/10.1037/rev0000113
+Grünbaum, T., Oren, F., & Kyllingsbæk, S. (2021). A new cognitive model of long-term memory for intentions. Cognition, 215, 104817.
+
