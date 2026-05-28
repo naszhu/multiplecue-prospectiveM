@@ -19,7 +19,8 @@ from psychopy import visual, core, event
 
 WINDOW_SIZE = (1000, 700)
 FULL_SCREEN = False
-BACKGROUND_COLOR = "black"
+# Match the example script background (black screen).
+BACKGROUND_COLOR = (0, 0, 0)
 COLOR_SPACE = "rgb255"
 
 N_TRIALS = 10
@@ -34,8 +35,8 @@ UNITS = "height"
 CIRCLE_RADIUS = 0.08
 INNER_CIRCLE_RADIUS = 0.045
 REWARD_TEXT_HEIGHT = 0.055
-DASHED_OUTLINE_RADIUS = 0.095
-DASHED_OUTLINE_LINE_WIDTH = 3
+BORDER_LINE_WIDTH = 4
+DASHED_OUTLINE_LINE_WIDTH = 5
 
 POSITIONS = {
     "top": (0.0, 0.16),
@@ -163,7 +164,9 @@ for trial_number, trial in enumerate(trials, start=1):
             radius=CIRCLE_RADIUS,
             pos=pos,
             fillColor=COLORS[circle_color],
-            lineColor=None,
+            lineColor=COLORS["white"],
+            lineColorSpace=COLOR_SPACE,
+            lineWidth=BORDER_LINE_WIDTH,
             fillColorSpace=COLOR_SPACE,
             edges=128,
         )
@@ -189,17 +192,18 @@ for trial_number, trial in enumerate(trials, start=1):
         inner_circle.draw()
         reward_text.draw()
 
-        # Nonfocal PM cue: draw a dashed white outline around one normal circle.
+        # Nonfocal PM cue: draw a dashed white outline on the same border radius
+        # as the original circle border (not a bigger outside circle).
         # PsychoPy does not have a dashed-circle option, so each dash is a short
         # white line between two nearby points on an invisible circle.
         if trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]:
             for dash_start in range(0, 360, 24):
                 angle1 = math.radians(dash_start)
                 angle2 = math.radians(dash_start + 12)
-                x1 = pos[0] + DASHED_OUTLINE_RADIUS * math.cos(angle1)
-                y1 = pos[1] + DASHED_OUTLINE_RADIUS * math.sin(angle1)
-                x2 = pos[0] + DASHED_OUTLINE_RADIUS * math.cos(angle2)
-                y2 = pos[1] + DASHED_OUTLINE_RADIUS * math.sin(angle2)
+                x1 = pos[0] + CIRCLE_RADIUS * math.cos(angle1)
+                y1 = pos[1] + CIRCLE_RADIUS * math.sin(angle1)
+                x2 = pos[0] + CIRCLE_RADIUS * math.cos(angle2)
+                y2 = pos[1] + CIRCLE_RADIUS * math.sin(angle2)
                 visual.Line(
                     win,
                     start=(x1, y1),
