@@ -19,8 +19,8 @@ from psychopy import visual, core, event
 
 WINDOW_SIZE = (1000, 700)
 FULL_SCREEN = False
-# Match the example script background (black screen).
-BACKGROUND_COLOR = (0, 0, 0)
+# Gray background (non-black).
+BACKGROUND_COLOR = (128, 128, 128)
 COLOR_SPACE = "rgb255"
 
 N_TRIALS = 10
