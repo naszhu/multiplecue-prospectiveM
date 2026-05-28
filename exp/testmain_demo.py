@@ -153,6 +153,9 @@ for trial_number, trial in enumerate(trials, start=1):
         pos = POSITIONS[position_name]
         normal_color = trial_colors[i]
         reward_value = trial["reward_values"][i]
+        is_nonfocal_pm_target = (
+            trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]
+        )
 
         # Focal PM cue: replace the normal task color with orange.
         circle_color = normal_color
@@ -164,9 +167,9 @@ for trial_number, trial in enumerate(trials, start=1):
             radius=CIRCLE_RADIUS,
             pos=pos,
             fillColor=COLORS[circle_color],
-            lineColor=COLORS["white"],
-            lineColorSpace=COLOR_SPACE,
-            lineWidth=BORDER_LINE_WIDTH,
+            lineColor=None if is_nonfocal_pm_target else COLORS["white"],
+            lineColorSpace=COLOR_SPACE if not is_nonfocal_pm_target else None,
+            lineWidth=0 if is_nonfocal_pm_target else BORDER_LINE_WIDTH,
             fillColorSpace=COLOR_SPACE,
             edges=128,
         )
@@ -196,7 +199,7 @@ for trial_number, trial in enumerate(trials, start=1):
         # as the original circle border (not a bigger outside circle).
         # PsychoPy does not have a dashed-circle option, so each dash is a short
         # white line between two nearby points on an invisible circle.
-        if trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]:
+        if is_nonfocal_pm_target:
             for dash_start in range(0, 360, 24):
                 angle1 = math.radians(dash_start)
                 angle2 = math.radians(dash_start + 12)
