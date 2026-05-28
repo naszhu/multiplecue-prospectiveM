@@ -87,6 +87,27 @@ trials = [
 
 random.shuffle(trials)
 
+# Manually force PM placement:
+# - Trial 2 (index 1) is nonfocal
+# - Trial 4 (index 3) is focal
+# - Trial 6 (index 5) is nonfocal
+# - Trial 8 (index 7) is focal
+# - All other trials are normal (no PM cue)
+nonfocal_trials = [t for t in trials if t["pm_type"] == "nonfocal"]
+focal_trials = [t for t in trials if t["pm_type"] == "focal"]
+normal_trials = [t for t in trials if t["pm_type"] is None]
+
+forced_trials = []
+for i in range(len(trials)):
+    if i in (1, 5):
+        forced_trials.append(nonfocal_trials.pop(0))
+    elif i in (3, 7):
+        forced_trials.append(focal_trials.pop(0))
+    else:
+        forced_trials.append(normal_trials.pop(0))
+
+trials = forced_trials
+
 
 # =============================================================================
 # WINDOW AND STIMULI
