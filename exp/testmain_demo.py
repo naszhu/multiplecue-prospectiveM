@@ -10,14 +10,20 @@ This is intentionally kept small and readable:
 
 import math
 import random
-from psychopy import visual, core, event
+from psychopy import visual, core, event, monitors
 
 
 # =============================================================================
 # CONFIG: CHANGE THESE VALUES FIRST
 # =============================================================================
 
-WINDOW_SIZE = (1000, 700)
+# Keep the normal window ratio, but allow easy scaling for high-res displays.
+BASE_WINDOW_SIZE = (1000, 700)
+WINDOW_SCALE = 1.35
+WINDOW_SIZE = (
+    int(BASE_WINDOW_SIZE[0] * WINDOW_SCALE),
+    int(BASE_WINDOW_SIZE[1] * WINDOW_SCALE),
+)
 FULL_SCREEN = False
 # Gray background (non-black).
 BACKGROUND_COLOR = (128, 128, 128)
@@ -29,19 +35,38 @@ MAX_RESPONSE_TIME = 3.0
 FEEDBACK_TIME = 0.7
 ITI_TIME = 0.3
 
-# Use PsychoPy "height" units so coordinates scale with the window height.
-UNITS = "height"
+# Use the same "deg + StimFactor-like" sizing style as the example file.
+UNITS = "deg"
+BASE_STIM_FACTOR = 0.04
+STIM_SCALE = 1.55
+STIM_FACTOR = BASE_STIM_FACTOR * STIM_SCALE
+# Keep disk placement independent from STIM_SCALE so the triangle geometry
+# stays like before (only disk size changes, not disk-to-disk distance).
+POSITION_SCALE = 1.0
+POSITION_FACTOR = BASE_STIM_FACTOR * POSITION_SCALE
+MONITOR_NAME = "testmain_demo_monitor"
+MONITOR_WIDTH_CM = 52
+MONITOR_DISTANCE_CM = 60
 
-CIRCLE_RADIUS = 0.08
-INNER_CIRCLE_RADIUS = 0.045
-REWARD_TEXT_HEIGHT = 0.055
+# Circle and number size assignments match the example style.
+CIRCLE_RADIUS = 20 * STIM_FACTOR       # 0.8
+INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR  # 0.35
+REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR  # 0.56
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
 
+# Isosceles triangle layout:
+# - top is centered on x=0
+# - bottom points are symmetric at x=±BOTTOM_X
+# - both bottom points share the same y
+# This keeps equal left/right side lengths and makes bottom disks less crowded.
+TOP_Y = 60 * POSITION_FACTOR
+BOTTOM_Y = -50 * POSITION_FACTOR
+BOTTOM_X = 60 * POSITION_FACTOR
 POSITIONS = {
-    "top": (0.0, 0.16),
-    "bottom_left": (-0.18, -0.13),
-    "bottom_right": (0.18, -0.13),
+    "top": (0.0, TOP_Y),
+    "bottom_left": (-BOTTOM_X, BOTTOM_Y),
+    "bottom_right": (BOTTOM_X, BOTTOM_Y),
 }
 
 COLORS = {
@@ -64,6 +89,15 @@ QUIT_KEY = "escape"
 ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
 PM_REWARD = 5
+
+# Color-key mapping legend (NJK keyboard-style arrangement).
+# These are directly aligned with the example file style.
+KEYMAP_SQUARE_SIZE = 30 * STIM_FACTOR       # same as ResponseColorSize
+KEYMAP_TEXT_HEIGHT = 0.55 * KEYMAP_SQUARE_SIZE
+KEYMAP_DISTANCE = 50 * STIM_FACTOR          # same as ResponseColorDistance
+KEYMAP_EXTRA_DOWN = 0.75 * KEYMAP_DISTANCE
+KEYMAP_BASE_Y = (-150 * STIM_FACTOR) - KEYMAP_EXTRA_DOWN
+KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE   # same row spacing style as example
 
 
 # =============================================================================
@@ -113,15 +147,28 @@ trials = forced_trials
 # WINDOW AND STIMULI
 # =============================================================================
 
+# With units="deg", PsychoPy needs a monitor with known pixel size.
+mon = monitors.Monitor(MONITOR_NAME)
+mon.setSizePix(WINDOW_SIZE)
+mon.setWidth(MONITOR_WIDTH_CM)
+mon.setDistance(MONITOR_DISTANCE_CM)
+
 win = visual.Window(
     size=WINDOW_SIZE,
     fullscr=FULL_SCREEN,
     units=UNITS,
     color=BACKGROUND_COLOR,
     colorSpace=COLOR_SPACE,
+    monitor=mon,
 )
 
-fixation = visual.TextStim(win, text="+", color=COLORS["white"], colorSpace=COLOR_SPACE, height=0.06)
+fixation = visual.TextStim(
+    win,
+    text="+",
+    color=COLORS["white"],
+    colorSpace=COLOR_SPACE,
+    height=0.35,
+)
 
 instructions = visual.TextStim(
     win,
@@ -134,11 +181,66 @@ instructions = visual.TextStim(
     ),
     color=COLORS["white"],
     colorSpace=COLOR_SPACE,
-    height=0.035,
-    wrapWidth=0.8,
+    height=0.6,
+    wrapWidth=24,
 )
 
-feedback = visual.TextStim(win, text="", color=COLORS["white"], colorSpace=COLOR_SPACE, height=0.045)
+feedback = visual.TextStim(
+    win,
+    text="",
+    color=COLORS["white"],
+    colorSpace=COLOR_SPACE,
+    height=0.7,
+)
+
+# -------------------------------------------------------------------------
+# KEY MAPPING STIMULI (NJK keyboard arrangement)
+# -------------------------------------------------------------------------
+# 1) Compute a bottom-center anchor for the 3-key legend
+# 2) Define raw NJK offsets (N lower row, J/K upper row and shifted right)
+# 3) Re-center offsets so the 3-key cluster is truly centered at the anchor
+keymap_center = (0.0, KEYMAP_BASE_Y)
+
+top_row_y = KEYMAP_ROW_OFFSET
+bottom_row_y = -KEYMAP_ROW_OFFSET
+
+raw_key_offsets = {
+    # N is on lower row; J/K are on upper row and shifted right.
+    "n": (-0.6 * KEYMAP_DISTANCE, bottom_row_y),
+    "j": (0.0, top_row_y),
+    "k": (1.0 * KEYMAP_DISTANCE, top_row_y),
+}
+
+mean_x = sum(v[0] for v in raw_key_offsets.values()) / 3
+mean_y = sum(v[1] for v in raw_key_offsets.values()) / 3
+key_offsets = {
+    key: (xy[0] - mean_x, xy[1] - mean_y)
+    for key, xy in raw_key_offsets.items()
+}
+
+key_to_color = {key: color for color, key in COLOR_KEYS.items()}
+keymap_stims = []
+for key in ["n", "j", "k"]:
+    offset = key_offsets[key]
+    pos = (keymap_center[0] + offset[0], keymap_center[1] + offset[1])
+    square = visual.Rect(
+        win,
+        width=KEYMAP_SQUARE_SIZE,
+        height=KEYMAP_SQUARE_SIZE,
+        pos=pos,
+        fillColor=COLORS[key_to_color[key]],
+        fillColorSpace=COLOR_SPACE,
+        lineColor=None,
+    )
+    label = visual.TextStim(
+        win,
+        text=key.upper(),
+        pos=pos,
+        height=KEYMAP_TEXT_HEIGHT,
+        color=COLORS["white"],
+        colorSpace=COLOR_SPACE,
+    )
+    keymap_stims.append((square, label))
 
 
 # =============================================================================
@@ -236,6 +338,11 @@ for trial_number, trial in enumerate(trials, start=1):
                     lineColorSpace=COLOR_SPACE,
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
+
+    # Draw color-key mapping on every trial.
+    for square, label in keymap_stims:
+        square.draw()
+        label.draw()
 
     clock = core.Clock()
     win.flip()
