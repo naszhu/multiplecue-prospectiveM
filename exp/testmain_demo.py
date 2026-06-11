@@ -95,7 +95,8 @@ COLOR_KEYS = {
     "green": "k",
 }
 
-PM_KEY = "space"
+PM_KEY = "d"
+START_KEY = "space"
 QUIT_KEY = "escape"
 ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
@@ -198,7 +199,7 @@ instructions = visual.TextStim(
         "Choose the color circle with the highest reward value.\n\n"
         "Red = N     Blue = J     Green = K\n\n"
         "PM rule: if one circle has an ORANGE marker (dot/ring/patch), or a DASHED outline,\n"
-        "press SPACE instead of the color key. Circle colors stay red/blue/green.\n\n"
+        "press D instead of the color key. Circle colors stay red/blue/green.\n\n"
         "Press SPACE to start."
     ),
     color=COLORS["white"],
@@ -350,7 +351,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
 
 instructions.draw()
 win.flip()
-event.waitKeys(keyList=[PM_KEY])
+event.waitKeys(keyList=[START_KEY])
 
 total_points = 0
 position_names = list(POSITIONS.keys())
