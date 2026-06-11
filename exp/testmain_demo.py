@@ -3,7 +3,7 @@ Simple PsychoPy version of the multiple-cue prospective memory experiment.
 
 This is intentionally kept small and readable:
 - 10 total trials
-- 2 focal PM trials: one circle turns orange
+- 2 focal PM trials: circle keeps its task color; an orange in-channel marker is added
 - 2 nonfocal PM trials: one circle has a dashed outline
 - keyboard only
 """
@@ -54,6 +54,17 @@ INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR  # 0.35
 REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR  # 0.56
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
+
+# Focal PM markers are orange features added inside/on the task-colored circle.
+# Supported styles: inner_dot, center_ring, small_patch, halo, marker_bg
+FOCAL_PM_INNER_DOT_RADIUS = 3.5 * STIM_FACTOR
+FOCAL_PM_RING_RADIUS = (CIRCLE_RADIUS + INNER_CIRCLE_RADIUS) / 2
+FOCAL_PM_RING_LINE_WIDTH = 5
+FOCAL_PM_PATCH_RADIUS = 5 * STIM_FACTOR
+FOCAL_PM_PATCH_OFFSET = 0.55 * CIRCLE_RADIUS
+FOCAL_PM_HALO_RADIUS = CIRCLE_RADIUS * 1.08
+FOCAL_PM_HALO_LINE_WIDTH = 7
+FOCAL_PM_MARKER_BG_RADIUS = INNER_CIRCLE_RADIUS * 0.72
 
 # Isosceles triangle layout:
 # - top is centered on x=0
@@ -106,14 +117,25 @@ KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE   # same row spacing style as example
 
 # reward_values uses 0 for "empty inner circle" and 1/2/3 for displayed values.
 # pm_type can be None, "focal", or "nonfocal".
+# focal_pm_style applies only on focal trials (see FOCAL_PM_* constants above).
 trials = [
     {"reward_values": [1, 0, 0], "pm_type": None, "pm_position": None},
     {"reward_values": [0, 2, 0], "pm_type": None, "pm_position": None},
-    {"reward_values": [0, 0, 3], "pm_type": "focal", "pm_position": "bottom_right"},
+    {
+        "reward_values": [0, 0, 3],
+        "pm_type": "focal",
+        "pm_position": "bottom_right",
+        "focal_pm_style": "inner_dot",
+    },
     {"reward_values": [2, 1, 0], "pm_type": None, "pm_position": None},
     {"reward_values": [3, 0, 1], "pm_type": "nonfocal", "pm_position": "top"},
     {"reward_values": [0, 3, 2], "pm_type": None, "pm_position": None},
-    {"reward_values": [1, 0, 3], "pm_type": "focal", "pm_position": "bottom_left"},
+    {
+        "reward_values": [1, 0, 3],
+        "pm_type": "focal",
+        "pm_position": "bottom_left",
+        "focal_pm_style": "center_ring",
+    },
     {"reward_values": [0, 1, 2], "pm_type": None, "pm_position": None},
     {"reward_values": [2, 0, 3], "pm_type": "nonfocal", "pm_position": "bottom_right"},
     {"reward_values": [0, 3, 0], "pm_type": None, "pm_position": None},
@@ -175,8 +197,8 @@ instructions = visual.TextStim(
     text=(
         "Choose the color circle with the highest reward value.\n\n"
         "Red = N     Blue = J     Green = K\n\n"
-        "PM rule: if one circle is ORANGE, or if one circle has a DASHED outline,\n"
-        "press SPACE instead of the color key.\n\n"
+        "PM rule: if one circle has an ORANGE marker (dot/ring/patch), or a DASHED outline,\n"
+        "press SPACE instead of the color key. Circle colors stay red/blue/green.\n\n"
         "Press SPACE to start."
     ),
     color=COLORS["white"],
@@ -243,6 +265,85 @@ for key in ["n", "j", "k"]:
     keymap_stims.append((square, label))
 
 
+def draw_focal_pm_marker(win, pos, style, reward_value):
+    """Draw an orange focal PM feature on a task-colored circle."""
+    orange = COLORS["orange"]
+
+    if style == "inner_dot":
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_INNER_DOT_RADIUS,
+            pos=pos,
+            fillColor=orange,
+            lineColor=None,
+            fillColorSpace=COLOR_SPACE,
+            edges=64,
+        ).draw()
+        return
+
+    if style == "center_ring":
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_RING_RADIUS,
+            pos=pos,
+            fillColor=None,
+            lineColor=orange,
+            lineColorSpace=COLOR_SPACE,
+            lineWidth=FOCAL_PM_RING_LINE_WIDTH,
+            edges=128,
+        ).draw()
+        return
+
+    if style == "small_patch":
+        patch_pos = (pos[0] + FOCAL_PM_PATCH_OFFSET, pos[1])
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_PATCH_RADIUS,
+            pos=patch_pos,
+            fillColor=orange,
+            lineColor=None,
+            fillColorSpace=COLOR_SPACE,
+            edges=64,
+        ).draw()
+        return
+
+    if style == "halo":
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_HALO_RADIUS,
+            pos=pos,
+            fillColor=None,
+            lineColor=orange,
+            lineColorSpace=COLOR_SPACE,
+            lineWidth=FOCAL_PM_HALO_LINE_WIDTH,
+            edges=128,
+        ).draw()
+        return
+
+    if style == "marker_bg":
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_MARKER_BG_RADIUS,
+            pos=pos,
+            fillColor=orange,
+            lineColor=None,
+            fillColorSpace=COLOR_SPACE,
+            edges=64,
+        ).draw()
+        if reward_value > 0:
+            visual.TextStim(
+                win,
+                text=str(reward_value),
+                pos=pos,
+                color=COLORS["white"],
+                colorSpace=COLOR_SPACE,
+                height=REWARD_TEXT_HEIGHT,
+            ).draw()
+        return
+
+    raise ValueError(f"Unknown focal PM style: {style}")
+
+
 # =============================================================================
 # EXPERIMENT START
 # =============================================================================
@@ -276,20 +377,20 @@ for trial_number, trial in enumerate(trials, start=1):
         pos = POSITIONS[position_name]
         normal_color = trial_colors[i]
         reward_value = trial["reward_values"][i]
+        is_focal_pm_target = (
+            trial["pm_type"] == "focal" and position_name == trial["pm_position"]
+        )
         is_nonfocal_pm_target = (
             trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]
         )
+        focal_pm_style = trial.get("focal_pm_style", "inner_dot")
 
-        # Focal PM cue: replace the normal task color with orange.
-        circle_color = normal_color
-        if trial["pm_type"] == "focal" and position_name == trial["pm_position"]:
-            circle_color = "orange"
-
+        # Focal PM keeps the task color; an orange marker is added later.
         outer_circle = visual.Circle(
             win,
             radius=CIRCLE_RADIUS,
             pos=pos,
-            fillColor=COLORS[circle_color],
+            fillColor=COLORS[normal_color],
             lineColor=None if is_nonfocal_pm_target else COLORS["white"],
             lineColorSpace=COLOR_SPACE if not is_nonfocal_pm_target else None,
             lineWidth=0 if is_nonfocal_pm_target else BORDER_LINE_WIDTH,
@@ -315,8 +416,16 @@ for trial_number, trial in enumerate(trials, start=1):
         )
 
         outer_circle.draw()
+        if is_focal_pm_target and focal_pm_style in ("center_ring", "halo"):
+            draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
         inner_circle.draw()
-        reward_text.draw()
+        if is_focal_pm_target and focal_pm_style == "marker_bg":
+            draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
+        elif is_focal_pm_target and focal_pm_style in ("inner_dot", "small_patch"):
+            draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
+            reward_text.draw()
+        else:
+            reward_text.draw()
 
         # Nonfocal PM cue: draw a dashed white outline on the same border radius
         # as the original circle border (not a bigger outside circle).
