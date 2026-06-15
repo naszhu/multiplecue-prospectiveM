@@ -3,7 +3,7 @@ PsychoPy version of the multiple-cue prospective memory experiment.
 
 Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
 Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
-Keyboard only.
+Supports keyboard or self-made serial response box.
 """
 
 import csv
@@ -17,6 +17,13 @@ from itertools import permutations
 from pathlib import Path
 
 from psychopy import gui, visual, core, event, monitors
+
+try:
+    import serial
+    from serial.tools import list_ports
+except ImportError:
+    serial = None
+    list_ports = None
 
 RESPONSE_DEVICE_KEYBOARD = "keyboard"
 RESPONSE_DEVICE_CEDRUS = "response_box_cedrus"
@@ -36,6 +43,7 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
+    "simulate_response_box": True,
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "test"
@@ -238,6 +246,54 @@ def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -
         raise SystemExit("Session confirmation cancelled.")
 
 
+def _find_self_made_response_box_port() -> str:
+    """Find the self-made box serial port (skip Cedrus FTDI devices)."""
+    if list_ports is not None:
+        for port in list_ports.comports():
+            if port.vid == CEDRUS_VID and port.pid == CEDRUS_PID:
+                continue
+            if port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
+                return port.device
+    return "/dev/ttyACM0"
+
+
+def _open_self_made_response_box():
+    if serial is None:
+        raise SystemExit("pyserial is required for self-made-response-box.")
+
+    port_name = _find_self_made_response_box_port()
+    box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.001)
+    time.sleep(2.0)
+    box.reset_input_buffer()
+    print(f"Using {RESPONSE_DEVICE_SELF_MADE} on {port_name}.")
+    return box
+
+
+def _wait_for_self_made_response_box(box, clock, max_wait):
+    """Wait for a pin press; return (pin_or_escape, computer_time, device_rt_ms) or None."""
+    buffer = ""
+    start = clock.getTime()
+
+    while clock.getTime() - start < max_wait:
+        escape_keys = event.getKeys(keyList=[QUIT_KEY], timeStamped=clock)
+        if escape_keys:
+            return (QUIT_KEY, escape_keys[0][1], 0.0)
+
+        buffer += box.read(box.in_waiting or 1).decode("ascii", errors="ignore")
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            parts = line.strip().split(",")
+            if len(parts) != 2:
+                continue
+
+            pin, latency_us = parts
+            if pin in SELF_MADE_PIN_TO_KEY:
+                return (pin, clock.getTime(), float(latency_us) / 1000)
+
+    return None
+
+
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
 WIN_SIZE_PIX = (1920, 1080)
 MONITOR_WIDTH_CM = 52
@@ -314,6 +370,17 @@ START_KEY = "space"
 QUIT_KEY = "escape"
 ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
+# Self-made response box (serial). Pin IDs map to the same keys as the keyboard.
+CEDRUS_VID = 0x0403
+CEDRUS_PID = 0x6001
+SELF_MADE_BAUDRATE = 115200
+SELF_MADE_PIN_TO_KEY = {
+    "6": PM_KEY,
+    "8": COLOR_KEYS["red"],
+    "9": COLOR_KEYS["blue"],
+    "5": COLOR_KEYS["green"],
+}
+
 PM_REWARD = 5
 
 FEEDBACK_LETTER_SIZE_DEG = 50 * STIM_FACTOR
@@ -340,7 +407,15 @@ POSITION_ID_TO_LABEL = {
 }
 
 
-def _color_to_key_mapping_metadata() -> dict[str, str]:
+def _color_to_key_mapping_metadata(response_device: str | None = None) -> dict[str, str]:
+    device = response_device or RESPONSE_DEVICE
+    if device == RESPONSE_DEVICE_SELF_MADE:
+        return {
+            "Red": "pin_8 (N)",
+            "Blue": "pin_9 (J)",
+            "Green": "pin_5 (K)",
+            "PM": "pin_6 (D)",
+        }
     return {
         COLOR_ID_TO_DISPLAY[COLOR_NAME_TO_ID[color]]: key.upper()
         for color, key in COLOR_KEYS.items()
@@ -448,6 +523,7 @@ def _build_trial_row(
     position_to_reward: dict,
     pressed_key: str | None,
     rt_ms: float | None,
+    rt_computer_clock_ms: float | None = None,
     cue_time: float,
     end_trial_time: float,
     actual_reward: int,
@@ -490,8 +566,10 @@ def _build_trial_row(
 
     if rt_ms is None:
         rt_ms = MAX_RESPONSE_TIME * 1000
-    rt_computer_clock_ms = rt_ms
+    if rt_computer_clock_ms is None:
+        rt_computer_clock_ms = rt_ms
     rt_sec = rt_ms / 1000
+    rt_difference = rt_computer_clock_ms - rt_ms
     late = rt_sec > RESPONSE_DEADLINE
     intr = 1 if (selected_position is not None and selected_color is None) else 0
     if pressed_key == PM_KEY:
@@ -546,7 +624,7 @@ def _build_trial_row(
         "PointTargetResponse": point_target,
         "RT": round(rt_ms, 2),
         "RTComputerClock": round(rt_computer_clock_ms, 2),
-        "RTDifference": 0.0,
+        "RTDifference": round(rt_difference, 2),
         "LateResponse": late,
         "ACC": acc,
         "INTR": intr,
@@ -693,7 +771,7 @@ def _build_metadata(
             "color_id_mapping_for_cues": {
                 str(color_id): COLOR_ID_TO_DISPLAY[color_id] for color_id in sorted(COLOR_ID_TO_DISPLAY)
             },
-            "color_to_key_mapping": _color_to_key_mapping_metadata(),
+            "color_to_key_mapping": _color_to_key_mapping_metadata(RESPONSE_DEVICE),
             "location_id_mapping": {
                 str(position_id): {
                     "screen_location": POSITION_ID_TO_LABEL[position_id],
@@ -757,6 +835,7 @@ def _build_metadata(
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
             "default_device_name_in_code": DEFAULT_DEVICE_NAME,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
+            "self_made_response_box_pins": dict(SELF_MADE_PIN_TO_KEY),
             "pm_key": PM_KEY,
             "response_deadline": RESPONSE_DEADLINE,
             "monitor_name": MONITOR_NAME,
@@ -1399,6 +1478,21 @@ for _t in trials:
     _block_trial_counts[_t["block"]] = _t["trial_in_block"]
 
 # print(json.dumps(trials, indent=2))  # full pre-designed session structure
+
+serial_response_box = None
+simulate_response_box = (
+    DEBUG_CONFIG["enabled"]
+    and DEBUG_CONFIG.get("simulate_response_box", True)
+    and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
+)
+if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
+    if simulate_response_box:
+        print(
+            f"DEBUG: simulating {RESPONSE_DEVICE_SELF_MADE}; "
+            "serial response box will not be opened."
+        )
+    else:
+        serial_response_box = _open_self_made_response_box()
 
 
 # =============================================================================
