@@ -1,0 +1,9 @@
+Nonfocal PM instructions
+
+In addition to the color choice task, some circles will have a DASHED WHITE OUTLINE.
+
+When you see a dashed-outline circle, press D instead of the color key.
+
+Circle colors stay red, blue, and green.
+
+Press SPACE to continue.
