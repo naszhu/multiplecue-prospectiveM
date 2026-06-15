@@ -22,13 +22,6 @@ EXP_DIR = Path(__file__).resolve().parent
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
 
 # Keep the normal window ratio, but allow easy scaling for high-res displays.
-BASE_WINDOW_SIZE = (1000, 700)
-WINDOW_SCALE = 1.35
-WINDOW_SIZE = (
-    int(BASE_WINDOW_SIZE[0] * WINDOW_SCALE),
-    int(BASE_WINDOW_SIZE[1] * WINDOW_SCALE),
-)
-FULL_SCREEN = False
 BACKGROUND_COLOR = (128, 128, 128)
 COLOR_SPACE = "rgb255"
 
@@ -90,43 +83,61 @@ DEBUG_CONFIG = {
     "enabled": True,
 }
 
-UNITS = "deg"
-BASE_STIM_FACTOR = 0.04
-STIM_SCALE = 1.55
-STIM_FACTOR = BASE_STIM_FACTOR * STIM_SCALE
-INSTRUCTION_WRAP_WIDTH_DEG = 800 * STIM_FACTOR
-POSITION_SCALE = 1.0
-POSITION_FACTOR = BASE_STIM_FACTOR * POSITION_SCALE
-MONITOR_NAME = "testmain_demo_monitor"
+# Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
+WIN_SIZE_PIX = (1920, 1080)
+FULL_SCREEN = False
 MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
+USE_UNITS = "deg"
+CIRCLE_EDGES = 200
 
-CIRCLE_RADIUS = 20 * STIM_FACTOR
-INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR
-REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR
-BORDER_LINE_WIDTH = 4
-DASHED_OUTLINE_LINE_WIDTH = 5
+# Paradigm StimFactor=0.04 sizing (no extra display scale factors).
+STIM_FACTOR = 0.04
+INSTRUCTION_WRAP_WIDTH_DEG = 800 * STIM_FACTOR
 
-FOCAL_PM_INNER_DOT_RADIUS = 3.5 * STIM_FACTOR
-FOCAL_PM_RING_RADIUS = (CIRCLE_RADIUS + INNER_CIRCLE_RADIUS) / 2
-FOCAL_PM_RING_LINE_WIDTH = 5
-FOCAL_PM_PATCH_RADIUS = 5 * STIM_FACTOR
-FOCAL_PM_PATCH_OFFSET = 0.55 * CIRCLE_RADIUS
-FOCAL_PM_HALO_RADIUS = CIRCLE_RADIUS * 1.08
-FOCAL_PM_HALO_LINE_WIDTH = 7
-FOCAL_PM_MARKER_BG_RADIUS = INNER_CIRCLE_RADIUS * 0.72
-FOCAL_PM_STYLE = "center_ring"
+# Cue disk sizes (ColorTargetSize=20*SF, CueBoxSize/2=8.75*SF, CueTextSize=14*SF).
+CUE_OUTER_RADIUS_DEG = 20 * STIM_FACTOR
+CUE_INNER_RADIUS_DEG = 8.75 * STIM_FACTOR
+CUE_TEXT_HEIGHT_DEG = 14 * STIM_FACTOR
 
-TOP_Y = 60 * POSITION_FACTOR
-BOTTOM_Y = -50 * POSITION_FACTOR
-BOTTOM_X = 60 * POSITION_FACTOR
+# Color-key legend (ResponseColorSize=30*SF, ResponseColorDistance=50*SF).
+RESPONSE_COLOR_SIZE_DEG = 30 * STIM_FACTOR
+RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR
+KEYMAP_TEXT_HEIGHT_DEG = 0.55 * RESPONSE_COLOR_SIZE_DEG
+KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS = 0.6 * 3  # paradigm row_h ratio × 3 below lowest cue disk
+
+# Triangle cue positions (paradigm-style coordinates * STIM_FACTOR).
+# Top (0, 60*SF); bottom pair at y=-50*SF, x=±60*SF.
+_TRIANGLE_TOP_Y_DEG = 60 * STIM_FACTOR
+_TRIANGLE_BOTTOM_Y_DEG = -50 * STIM_FACTOR
+_TRIANGLE_BOTTOM_X_DEG = 60 * STIM_FACTOR
 POSITIONS = {
-    "top": (0.0, TOP_Y),
-    "bottom_left": (-BOTTOM_X, BOTTOM_Y),
-    "bottom_right": (BOTTOM_X, BOTTOM_Y),
+    "top": (0.0, _TRIANGLE_TOP_Y_DEG),
+    "bottom_left": (-_TRIANGLE_BOTTOM_X_DEG, _TRIANGLE_BOTTOM_Y_DEG),
+    "bottom_right": (_TRIANGLE_BOTTOM_X_DEG, _TRIANGLE_BOTTOM_Y_DEG),
 }
 POSITION_NAMES = list(POSITIONS.keys())
 N_POSITIONS = len(POSITION_NAMES)
+
+# Aliases used in the trial loop (same names as paradigm).
+CIRCLE_RADIUS = CUE_OUTER_RADIUS_DEG
+INNER_CIRCLE_RADIUS = CUE_INNER_RADIUS_DEG
+REWARD_TEXT_HEIGHT = CUE_TEXT_HEIGHT_DEG
+
+FOCAL_PM_INNER_DOT_RADIUS = 3.5 * STIM_FACTOR
+FOCAL_PM_RING_RADIUS = (CUE_OUTER_RADIUS_DEG + CUE_INNER_RADIUS_DEG) / 2
+FOCAL_PM_RING_LINE_WIDTH = 5
+FOCAL_PM_PATCH_RADIUS = 5 * STIM_FACTOR
+FOCAL_PM_PATCH_OFFSET = 0.55 * CUE_OUTER_RADIUS_DEG
+FOCAL_PM_HALO_RADIUS = CUE_OUTER_RADIUS_DEG * 1.08
+FOCAL_PM_HALO_LINE_WIDTH = 7
+FOCAL_PM_MARKER_BG_RADIUS = CUE_INNER_RADIUS_DEG * 0.72
+FOCAL_PM_STYLE = "center_ring"
+
+BORDER_LINE_WIDTH = 4
+DASHED_OUTLINE_LINE_WIDTH = 5
+
+MONITOR_NAME = "testmain_demo_monitor"
 
 COLORS = {
     "red": (220, 50, 50),
@@ -159,12 +170,33 @@ FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
 FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
 
-KEYMAP_SQUARE_SIZE = 30 * STIM_FACTOR
-KEYMAP_TEXT_HEIGHT = 0.55 * KEYMAP_SQUARE_SIZE
-KEYMAP_DISTANCE = 50 * STIM_FACTOR
-KEYMAP_EXTRA_DOWN = 0.75 * KEYMAP_DISTANCE
-KEYMAP_BASE_Y = (-150 * STIM_FACTOR) - KEYMAP_EXTRA_DOWN
-KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE
+
+def _triangle_bottom_y_deg() -> float:
+    """Lowest point of the three cue disks (center y minus outer radius)."""
+    return min(pos[1] for pos in POSITIONS.values()) - CUE_OUTER_RADIUS_DEG
+
+
+def _njk_keymap_positions() -> dict:
+    """
+    NJK keyboard color-key legend below the triangle cues.
+
+    Geometry (d = RESPONSE_COLOR_DISTANCE_DEG):
+      - J and K on the top row; K is d to the right of J.
+      - N on the bottom row, d left of J (horizontal N–J = d).
+      - Vertical row spacing = d (same as horizontal J–K and N–J).
+      - Top row sits KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS * d below the lowest cue disk.
+    """
+    d = RESPONSE_COLOR_DISTANCE_DEG
+    row_spacing = d
+    gap_below_triangle = d * KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS
+    top_row_y = _triangle_bottom_y_deg() - gap_below_triangle
+    bottom_row_y = top_row_y - row_spacing
+    return {
+        "j": (0.0, top_row_y),
+        "k": (d, top_row_y),
+        "n": (-d, bottom_row_y),
+    }
+
 
 CUE_CONDITIONS = [
     {"values": (1,), "label": "(1)"},
@@ -508,14 +540,14 @@ for _t in trials:
 # =============================================================================
 
 mon = monitors.Monitor(MONITOR_NAME)
-mon.setSizePix(WINDOW_SIZE)
+mon.setSizePix(WIN_SIZE_PIX)
 mon.setWidth(MONITOR_WIDTH_CM)
 mon.setDistance(MONITOR_DISTANCE_CM)
 
 win = visual.Window(
-    size=WINDOW_SIZE,
+    size=WIN_SIZE_PIX,
     fullscr=FULL_SCREEN,
-    units=UNITS,
+    units=USE_UNITS,
     color=BACKGROUND_COLOR,
     colorSpace=COLOR_SPACE,
     monitor=mon,
@@ -536,7 +568,7 @@ instructions = visual.TextStim(
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
     wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
-    units=UNITS,
+    units=USE_UNITS,
 )
 
 feedback1 = visual.TextStim(
@@ -546,7 +578,7 @@ feedback1 = visual.TextStim(
     height=FEEDBACK_LETTER_SIZE_DEG,
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    units=UNITS,
+    units=USE_UNITS,
     opacity=STIMULUS_OPACITY,
 )
 feedback2 = visual.TextStim(
@@ -556,7 +588,7 @@ feedback2 = visual.TextStim(
     height=FEEDBACK_LETTER_SIZE_DEG * 0.6,
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    units=UNITS,
+    units=USE_UNITS,
     opacity=STIMULUS_OPACITY,
 )
 feedback3 = visual.TextStim(
@@ -566,7 +598,7 @@ feedback3 = visual.TextStim(
     height=FEEDBACK_LETTER_SIZE_DEG * 0.6,
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    units=UNITS,
+    units=USE_UNITS,
     opacity=STIMULUS_OPACITY,
 )
 feedback4 = visual.TextStim(
@@ -576,7 +608,7 @@ feedback4 = visual.TextStim(
     height=FEEDBACK_LETTER_SIZE_DEG * 0.2,
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    units=UNITS,
+    units=USE_UNITS,
     opacity=STIMULUS_OPACITY,
 )
 end_text = visual.TextStim(
@@ -585,7 +617,7 @@ end_text = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
-    units=UNITS,
+    units=USE_UNITS,
 )
 esc_confirm_text = visual.TextStim(
     win,
@@ -593,7 +625,7 @@ esc_confirm_text = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
-    units=UNITS,
+    units=USE_UNITS,
 )
 block_break_text = visual.TextStim(
     win,
@@ -602,45 +634,32 @@ block_break_text = visual.TextStim(
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
     wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
-    units=UNITS,
+    units=USE_UNITS,
 )
 
-keymap_center = (0.0, KEYMAP_BASE_Y)
-top_row_y = KEYMAP_ROW_OFFSET
-bottom_row_y = -KEYMAP_ROW_OFFSET
-raw_key_offsets = {
-    "n": (-0.6 * KEYMAP_DISTANCE, bottom_row_y),
-    "j": (0.0, top_row_y),
-    "k": (1.0 * KEYMAP_DISTANCE, top_row_y),
-}
-mean_x = sum(v[0] for v in raw_key_offsets.values()) / 3
-mean_y = sum(v[1] for v in raw_key_offsets.values()) / 3
-key_offsets = {
-    key: (xy[0] - mean_x, xy[1] - mean_y)
-    for key, xy in raw_key_offsets.items()
-}
-
+keymap_positions = _njk_keymap_positions()
 key_to_color = {key: color for color, key in COLOR_KEYS.items()}
 keymap_stims = []
 for key in ["n", "j", "k"]:
-    offset = key_offsets[key]
-    pos = (keymap_center[0] + offset[0], keymap_center[1] + offset[1])
+    pos = keymap_positions[key]
     square = visual.Rect(
         win,
-        width=KEYMAP_SQUARE_SIZE,
-        height=KEYMAP_SQUARE_SIZE,
+        width=RESPONSE_COLOR_SIZE_DEG,
+        height=RESPONSE_COLOR_SIZE_DEG,
         pos=pos,
         fillColor=COLORS[key_to_color[key]],
         fillColorSpace=COLOR_SPACE,
         lineColor=None,
+        units=USE_UNITS,
     )
     label = visual.TextStim(
         win,
         text=key.upper(),
         pos=pos,
-        height=KEYMAP_TEXT_HEIGHT,
+        height=KEYMAP_TEXT_HEIGHT_DEG,
         color=COLORS["white"],
         colorSpace=COLOR_SPACE,
+        units=USE_UNITS,
     )
     keymap_stims.append((square, label))
 
@@ -852,7 +871,7 @@ for trial in trials:
             lineColorSpace=COLOR_SPACE if not is_nonfocal_pm_target else None,
             lineWidth=0 if is_nonfocal_pm_target else BORDER_LINE_WIDTH,
             fillColorSpace=COLOR_SPACE,
-            edges=128,
+            edges=CIRCLE_EDGES,
         )
         inner_circle = visual.Circle(
             win,
@@ -861,7 +880,7 @@ for trial in trials:
             fillColor=COLORS["white"],
             lineColor=None,
             fillColorSpace=COLOR_SPACE,
-            edges=128,
+            edges=CIRCLE_EDGES,
         )
         reward_text = visual.TextStim(
             win,
