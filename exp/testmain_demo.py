@@ -6,9 +6,13 @@ Trial design is fully pre-assigned before the experiment starts (no randomizatio
 Keyboard only.
 """
 
+import csv
 import json
 import math
 import random
+import re
+import time
+from datetime import datetime
 from itertools import permutations
 from pathlib import Path
 
@@ -72,6 +76,16 @@ MAX_SESSION = (
 MAX_PARTICIPANT_ID = 100
 PARTICIPANT_CHOICES = ["test"] + [str(i) for i in range(1, MAX_PARTICIPANT_ID + 1)]
 DEFAULT_PARTICIPANT = "test"
+
+CODE_VERSION = "v1-2026-06-15"
+EXPERIMENT_NAME = "PMCP"
+EXPERIMENT_NUMBER = 1002
+DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
+RESPONSE_DEVICE = "keyboard"
+DEVICE_NAME = "KB"
+COLOR_KEY_MAPPING = "rbg"
+COLOR_MAP_LAYOUT = "njk"
+RESPONSE_DEADLINE = 2.0
 
 # Warm-up / burn-in hooks (not active in main sessions yet).
 FIRST_WARMUP_TRIALS = 0
@@ -190,6 +204,440 @@ FEEDBACK3_POS_DEG = (0, -140 * STIM_FACTOR)
 FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
 FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
+
+COLOR_NAME_TO_ID = {"red": 1, "blue": 2, "green": 3}
+COLOR_ID_TO_DISPLAY = {1: "Red", 2: "Blue", 3: "Green"}
+POSITION_NAME_TO_ID = {
+    "top": 1,
+    "bottom_left": 2,
+    "bottom_right": 3,
+    "center": 0,
+}
+POSITION_ID_TO_LABEL = {
+    1: "top",
+    2: "bottom_left",
+    3: "bottom_right",
+    0: "center",
+}
+
+
+def _color_to_key_mapping_metadata() -> dict[str, str]:
+    return {
+        COLOR_ID_TO_DISPLAY[COLOR_NAME_TO_ID[color]]: key.upper()
+        for color, key in COLOR_KEYS.items()
+    }
+
+
+def _tk_ask_string(title: str, message: str) -> str | None:
+    import tkinter as tk
+    from tkinter import simpledialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    value = simpledialog.askstring(title, message, parent=root)
+    root.destroy()
+    return value
+
+
+def _participant_data_dir(participant: str) -> Path:
+    return DATA_OUT_DIR / f"subj{participant}"
+
+
+def _resolve_data_output_paths(
+    participant: str, session: int, out_dir: Path
+) -> tuple[Path, Path, str, str, str]:
+    """Return trials path, metadata path, file stem, repeat note, repeat reason."""
+    base_stem = f"PMCP_subj{participant}_ses{session}"
+    trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
+    metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
+
+    if participant == "test":
+        return trials_path, metadata_path, base_stem, "", ""
+
+    if not trials_path.exists() and not metadata_path.exists():
+        return trials_path, metadata_path, base_stem, "", ""
+
+    reason = _tk_ask_string(
+        "Participant data already exists",
+        (
+            f"Data already exists for participant {participant}, session {session}.\n\n"
+            "To continue anyway, enter a reason:"
+        ),
+    )
+    if reason is None:
+        raise SystemExit("Repeat run cancelled.")
+    reason = reason.strip()
+    if not reason:
+        raise SystemExit("A reason is required to overwrite existing participant data.")
+
+    suffix_n = 2
+    while True:
+        stem = f"{base_stem}({suffix_n})"
+        candidate_trials = (out_dir / f"{stem}_trials.csv").resolve()
+        candidate_meta = (out_dir / f"{stem}_metadata.json").resolve()
+        if not candidate_trials.exists() and not candidate_meta.exists():
+            note = f"this is a repeated data, reason is '{reason}'"
+            return candidate_trials, candidate_meta, stem, note, reason
+        suffix_n += 1
+
+
+def _max_completed_session(participant: str, out_dir: Path) -> int | None:
+    """Highest session number found for this participant, or None."""
+    prefix = f"PMCP_subj{participant}_ses"
+    max_session = None
+    if not out_dir.is_dir():
+        return None
+    for path in out_dir.iterdir():
+        if not path.is_file() or not path.name.startswith(prefix):
+            continue
+        match = re.match(r"^(\d+)", path.name[len(prefix):])
+        if match:
+            session_num = int(match.group(1))
+            max_session = session_num if max_session is None else max(max_session, session_num)
+    return max_session
+
+
+def _suggested_next_session(participant: str, out_dir: Path) -> int:
+    max_session = _max_completed_session(participant, out_dir)
+    return 1 if max_session is None else max_session + 1
+
+
+def _trial_design_maps(trial: dict) -> tuple[dict, dict]:
+    position_to_reward = {
+        i: trial["reward_values"][i] if i < len(trial["reward_values"]) else 0
+        for i in range(N_POSITIONS)
+    }
+    position_to_color_id = {}
+    for i in range(N_POSITIONS):
+        color_name = trial["trial_colors"][i] if i < len(trial["trial_colors"]) else ""
+        reward = position_to_reward[i]
+        if color_name and reward > 0:
+            position_to_color_id[i] = COLOR_NAME_TO_ID[color_name]
+        else:
+            position_to_color_id[i] = None
+    return position_to_color_id, position_to_reward
+
+
+def _build_trial_row(
+    *,
+    trial: dict,
+    position_to_color_id: dict,
+    position_to_reward: dict,
+    pressed_key: str | None,
+    rt_ms: float | None,
+    cue_time: float,
+    end_trial_time: float,
+    actual_reward: int,
+    max_reward: int,
+    cum_reward: float,
+    trial_index: int,
+    trial_start_jitter_time_ms: float,
+    trial_wall_clock_str: str,
+    session_elapsed_sec: float,
+    trial_note: str = "",
+) -> dict:
+    """Build one CSV row matching CCRP columns plus PM fields."""
+    colors = [position_to_color_id[i] or 0 for i in range(N_POSITIONS)]
+    reward_vals = [position_to_reward[i] or 0 for i in range(N_POSITIONS)]
+    sorted_reward_values = sorted((value for value in reward_vals if value), reverse=True)
+    reward_rank_by_value = {value: rank + 1 for rank, value in enumerate(sorted_reward_values)}
+    reward_ranks = [reward_rank_by_value.get(value, 4) if value else 4 for value in reward_vals]
+    num_cues = sum(1 for value in reward_vals if value > 0)
+
+    is_pm_trial = bool(trial.get("is_pm_trial"))
+    pm_kind = trial.get("pm_trial_kind") or ""
+    pm_position = trial.get("pm_position") or ""
+    pm_position_id = POSITION_NAME_TO_ID.get(pm_position, 0)
+    pm_response = int(pressed_key == PM_KEY)
+    pm_intrusion = int((not is_pm_trial) and pressed_key == PM_KEY)
+    pm_acc = int(is_pm_trial and pressed_key == PM_KEY)
+
+    selected_color = None
+    selected_position = None
+    if pressed_key in COLOR_KEYS.values():
+        selected_color_name = next(
+            color for color, key in COLOR_KEYS.items() if key == pressed_key
+        )
+        selected_color = COLOR_NAME_TO_ID[selected_color_name]
+        if trial.get("single_center", False):
+            if trial["trial_colors"][0] == selected_color_name:
+                selected_position = 0
+        else:
+            selected_position = trial["trial_colors"].index(selected_color_name)
+
+    if rt_ms is None:
+        rt_ms = MAX_RESPONSE_TIME * 1000
+    rt_computer_clock_ms = rt_ms
+    rt_sec = rt_ms / 1000
+    late = rt_sec > RESPONSE_DEADLINE
+    intr = 1 if (selected_position is not None and selected_color is None) else 0
+    if pressed_key == PM_KEY:
+        intr = 0
+    acc = 1 if actual_reward == max_reward and max_reward > 0 else 0
+
+    chosen_location_idx = selected_position
+    resp_loc = (chosen_location_idx + 1) if chosen_location_idx is not None else 0
+    point_target = (
+        "".join("1" if i == chosen_location_idx else "0" for i in range(N_POSITIONS))
+        if chosen_location_idx is not None
+        else "0" * N_POSITIONS
+    )
+    cue_response_exp_value = (
+        reward_vals[chosen_location_idx] if chosen_location_idx is not None else 0
+    )
+    cue_rank_response = (
+        reward_ranks[chosen_location_idx] if chosen_location_idx is not None else 0
+    )
+    exp_reward = max((value for value in reward_vals if value), default=0)
+
+    return {
+        "ExperimentName": EXPERIMENT_NAME,
+        "ExperimentNumber": EXPERIMENT_NUMBER,
+        "CodeVersion": CODE_VERSION,
+        "ColorMapLayout": COLOR_MAP_LAYOUT,
+        "ColorKeyMapping": COLOR_KEY_MAPPING,
+        "ResponseDevice": RESPONSE_DEVICE,
+        "DeviceName": DEVICE_NAME,
+        "Subject": PARTICIPANT,
+        "Handedness": HANDEDNESS,
+        "ColorVision": COLOR_VISION,
+        "EyeVision": EYE_VISION,
+        "Session": SESSION,
+        "Block": trial["block"],
+        "Trial": trial_index + 1,
+        "WarmUpTrial": trial.get("warm_up", 0),
+        "BurnInBlock": trial.get("burn_in_block", 0),
+        "PMPracticeBlock": trial.get("pm_practice_block", 0),
+        "SessionPhase": trial.get("session_phase", SESSION_PHASE),
+        "CueCondition": trial.get("cue_condition", ""),
+        "NumCues": num_cues,
+        "TrialStartJitterTime": round(trial_start_jitter_time_ms, 2),
+        "CueSOA": 0,
+        "Cues": "".join(str(c) for c in colors),
+        "CueValues": "".join(str(v) for v in reward_vals),
+        "CueRanks": "".join(str(r) for r in reward_ranks),
+        "Response": pressed_key or "timeout",
+        "RespLoc": resp_loc,
+        "PointTargetResponse": point_target,
+        "RT": round(rt_ms, 2),
+        "RTComputerClock": round(rt_computer_clock_ms, 2),
+        "RTDifference": 0.0,
+        "LateResponse": late,
+        "ACC": acc,
+        "INTR": intr,
+        "CueResponseValue": actual_reward,
+        "CueResponseExpValue": cue_response_exp_value,
+        "CueRankResponse": cue_rank_response,
+        "ExpectedReward": exp_reward,
+        "Reward": actual_reward,
+        "MaxReward": max_reward,
+        "CumReward": cum_reward,
+        "PMTrial": int(is_pm_trial),
+        "PMKind": pm_kind,
+        "PMPosition": pm_position,
+        "PMPositionId": pm_position_id,
+        "PMKey": PM_KEY,
+        "PMResponse": pm_response,
+        "PMACC": pm_acc,
+        "PMIntrusion": pm_intrusion,
+        "PMReward": PM_REWARD if is_pm_trial else 0,
+        "FocalPMStyle": trial.get("focal_pm_style", FOCAL_PM_STYLE) if pm_kind == "focal" else "",
+        "CueTime": round(cue_time * 1000, 2),
+        "PointTargetTime": round((cue_time + rt_sec) * 1000, 2),
+        "ColorTargetTime": round(cue_time * 1000, 2),
+        "EndTrialTime": round(end_trial_time * 1000, 2),
+        "TrialWallClockTime": trial_wall_clock_str,
+        "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "Note": trial_note,
+    }
+
+
+DAT_COLUMN_DESCRIPTIONS = {
+    "ExperimentName": "Short experiment label constant.",
+    "ExperimentNumber": "Numeric experiment ID constant.",
+    "CodeVersion": "Experiment code version configured at the top of the script.",
+    "ColorMapLayout": "Color-key legend layout: NJK keyboard-matched triangle.",
+    "ColorKeyMapping": "Three-character mapping for response colors: r=red, b=blue, g=green.",
+    "ResponseDevice": "Response input device used for this run (keyboard only in this script).",
+    "DeviceName": "Physical response unit ID (KB for keyboard).",
+    "Subject": "Participant ID from the session dialog.",
+    "Handedness": "Participant handedness from the session dialog.",
+    "ColorVision": "Participant color vision status from the session dialog.",
+    "EyeVision": "Participant eye vision status from the session dialog.",
+    "Session": "Session number from the session dialog (1-based).",
+    "Block": "Block number within the session; -1 = PM practice, 0 = burn-in when present.",
+    "Trial": "Trial index within the session (1-based).",
+    "WarmUpTrial": "1 if warmup trial, 0 if main trial.",
+    "BurnInBlock": "1 if trial belongs to the optional burn-in block (block 0); 0 otherwise.",
+    "PMPracticeBlock": "1 if trial belongs to the PM practice block (block -1); 0 otherwise.",
+    "SessionPhase": "practice, baseline, focal_pm, or nonfocal_pm.",
+    "CueCondition": "Reward-value combination label among cued locations, e.g. (1), (2,3).",
+    "NumCues": "Count of cued stimulus locations this trial.",
+    "TrialStartJitterTime": "Duration of fixation before stimulus onset (ms).",
+    "CueSOA": "Cue-target stimulus onset asynchrony (ms); 0 here.",
+    "Cues": "Three digits: color ID 1-3 at each spatial slot; 0 = no stimulus at that slot.",
+    "CueValues": "Three digits: reward digit at each slot; 0 = no reward at that slot.",
+    "CueRanks": "Three digits: reward-value rank at each location; 4 = no reward at that location.",
+    "Response": "Key pressed (lowercase) or timeout; escape not logged as a trial row.",
+    "RespLoc": "Location id (1-3) of the participant's chosen cue; 0 if no valid chosen location.",
+    "PointTargetResponse": "Three-digit one-hot vector of chosen cue location; all zeros if none.",
+    "RT": "Reaction time (ms) from stimulus onset using the PsychoPy clock.",
+    "RTComputerClock": "Reaction time (ms) using the PsychoPy computer clock (same as RT for keyboard).",
+    "RTDifference": "RTComputerClock minus RT (ms); 0 for keyboard.",
+    "LateResponse": "True if RT (seconds) exceeded RESPONSE_DEADLINE; False otherwise.",
+    "ACC": "1 if obtained reward equals max possible reward on that trial and max > 0; else 0.",
+    "INTR": "1 if participant responded with a key whose mapped color was absent on screen; else 0.",
+    "CueResponseValue": "Reward points obtained from the chosen response (0 if wrong/absent).",
+    "CueResponseExpValue": "Expected reward value at location chosen.",
+    "CueRankResponse": "Rank of value at location chosen; 0 if no valid chosen location.",
+    "ExpectedReward": "Highest possible ongoing-task reward in this trial.",
+    "Reward": "Same as obtained points for this trial (CueResponseValue).",
+    "MaxReward": "Maximum obtainable reward on this trial (PM bonus on PM trials).",
+    "CumReward": "Cumulative monetary-style score (points x REWARD_MONEY_FACTOR), running total.",
+    "PMTrial": "1 if this trial includes a prospective-memory cue; 0 otherwise.",
+    "PMKind": "focal, nonfocal, or empty.",
+    "PMPosition": "Stimulus location name of the PM cue (top, bottom_left, bottom_right, center).",
+    "PMPositionId": "Numeric location id of the PM cue; 0 for center-only layout or none.",
+    "PMKey": "Key assigned to PM responses.",
+    "PMResponse": "1 if participant pressed the PM key on this trial; 0 otherwise.",
+    "PMACC": "1 if PM trial and participant pressed the PM key; 0 otherwise.",
+    "PMIntrusion": "1 if participant pressed the PM key on a non-PM trial; 0 otherwise.",
+    "PMReward": "PM bonus points available when PMTrial=1; 0 on ongoing trials.",
+    "FocalPMStyle": "Focal PM marker style when PMKind=focal; empty otherwise.",
+    "CueTime": "Stimulus onset time from trial clock (ms).",
+    "PointTargetTime": "Time of keypress from trial clock (ms), or cue time if no RT.",
+    "ColorTargetTime": "Same as cue onset time here (ms).",
+    "EndTrialTime": "Trial clock time (ms) at end of feedback phase.",
+    "TrialWallClockTime": "Local wall-clock date and time when this trial row was logged.",
+    "SessionElapsedSec": "Seconds since session timing start (monotonic clock).",
+    "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
+}
+
+
+def _build_metadata(
+    *,
+    exp_start_time_str: str,
+    n_blocks: int,
+    n_trials_total: int,
+    n_trials_per_block: int,
+    include_burnin_block: bool,
+    include_pm_practice_block: bool,
+    display_config: dict,
+    dat_columns: list[str],
+) -> dict:
+    try:
+        import psychopy
+
+        psychopy_version = getattr(psychopy, "__version__", "unknown")
+    except Exception:
+        psychopy_version = "unknown"
+
+    reward_labels = [cond["label"] for cond in get_session_generation_config(SESSION)["cue_conditions"]]
+    n_reward_conds = len(reward_labels)
+    reps_per_condition = (n_trials_per_block // n_reward_conds) if n_reward_conds else 0
+    debug_on = bool(DEBUG_CONFIG.get("enabled"))
+
+    return {
+        "trial_timing_and_design": {
+            "cue_soa_ms": 0,
+            "fixation_duration_s": FIXATION_TIME,
+            "response_key_wait_max_s": MAX_RESPONSE_TIME,
+            "late_response_threshold_s": RESPONSE_DEADLINE,
+            "feedback_duration_s": FEEDBACK_WAIT_TIME,
+            "iti_duration_s": ITI_TIME,
+            "warmup_trials_first_block": FIRST_WARMUP_TRIALS,
+            "warmup_trials_other_blocks": OTHER_WARMUP_TRIALS,
+            "burnin_block_included": include_burnin_block,
+            "burnin_trials_per_block": BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0,
+            "burnin_block_number": BURNIN_BLOCK_NUMBER if include_burnin_block else None,
+            "pm_practice_block_included": include_pm_practice_block,
+            "pm_practice_block_number": PM_PRACTICE_BLOCK_NUMBER if include_pm_practice_block else None,
+            "pm_trials_per_block": PM_TRIALS_PER_BLOCK,
+            "pm_reward_points": PM_REWARD,
+            "pm_key": PM_KEY,
+            "blocks": n_blocks,
+            "main_trials_per_block": n_trials_per_block,
+            "total_trials": n_trials_total,
+            "single_stimulus_at_center": bool(display_config.get("single_center", False)),
+            "color_key_legend_on_screen": bool(display_config.get("show_color_keymap", True)),
+            "cue_condition_labels": reward_labels,
+            "number_of_reward_conditions": n_reward_conds,
+            "main_trials_per_reward_condition_per_block_balanced": reps_per_condition,
+            "color_id_mapping_for_cues": {
+                str(color_id): COLOR_ID_TO_DISPLAY[color_id] for color_id in sorted(COLOR_ID_TO_DISPLAY)
+            },
+            "color_to_key_mapping": _color_to_key_mapping_metadata(),
+            "location_id_mapping": {
+                str(position_id): {
+                    "screen_location": POSITION_ID_TO_LABEL[position_id],
+                    "position_deg_x_y": [
+                        round(POSITIONS[name][0], 3),
+                        round(POSITIONS[name][1], 3),
+                    ],
+                }
+                for name, position_id in POSITION_NAME_TO_ID.items()
+                if name != "center"
+            },
+            "location_id_mapping_note": (
+                "Location ids are 1-based positions in Cues, CueValues, CueRanks, RespLoc, "
+                "and PointTargetResponse. Center-only sessions log the cue in slot 1."
+            ),
+            "per_trial_logging_note": (
+                "TrialWallClockTime is local wall time; SessionElapsedSec is monotonic elapsed "
+                "seconds since pre-loop session start."
+            ),
+        },
+        "run_and_display_metadata": {
+            "psychopy_version": psychopy_version,
+            "experimental_program": Path(__file__).name,
+            "experiment_name": EXPERIMENT_NAME,
+            "experiment_number": EXPERIMENT_NUMBER,
+            "code_version": CODE_VERSION,
+            "exp_start_time": exp_start_time_str,
+            "debug_config_enabled": debug_on,
+            "color_key_mapping": COLOR_KEY_MAPPING,
+            "color_key_mapping_description": (
+                "Fixed mapping rbg: red=N, blue=J, green=K on the keyboard."
+            ),
+            "repeated_run": bool(REPEAT_DATA_NOTE),
+            "repeat_reason": REPEAT_REASON,
+            "data_file_stem": DATA_FILE_STEM,
+            "participant_data_subdirectory": str(PARTICIPANT_DATA_DIR),
+            "subject": PARTICIPANT,
+            "handedness": HANDEDNESS,
+            "color_vision": COLOR_VISION,
+            "eye_vision": EYE_VISION,
+            "practice": "Y" if SESSION <= N_PRACTICE_SESSIONS else "N",
+            "session": SESSION,
+            "session_phase": SESSION_PHASE,
+            "session1_instruction_language": SESSION1_INSTRUCTION_LANGUAGE if SESSION == 1 else None,
+            "number_of_blocks": n_blocks,
+            "total_number_of_trials": n_trials_total,
+            "reward_money_factor": REWARD_MONEY_FACTOR,
+            "full_screen": "Y" if FULL_SCREEN else "N",
+            "response_device": RESPONSE_DEVICE,
+            "device_name": DEVICE_NAME,
+            "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
+            "pm_key": PM_KEY,
+            "response_deadline": RESPONSE_DEADLINE,
+            "monitor_name": MONITOR_NAME,
+            "monitor_set_size_pixels": list(WIN_SIZE_PIX),
+            "monitor_width_cm": MONITOR_WIDTH_CM,
+            "monitor_distance_cm": MONITOR_DISTANCE_CM,
+            "background_color": list(BACKGROUND_COLOR),
+            "stimulus_opacity": STIMULUS_OPACITY,
+            "focal_pm_style": FOCAL_PM_STYLE,
+        },
+        "column_order": dat_columns,
+        "column_definitions": {
+            col: DAT_COLUMN_DESCRIPTIONS.get(col, "No description defined.")
+            for col in dat_columns
+        },
+    }
 
 
 def _lowest_cue_bottom_y_deg(*, single_center: bool = False) -> float:
@@ -649,13 +1097,35 @@ def _load_session_start_instruction(session: int, participant_id: str) -> str:
 # SESSION DIALOG
 # =============================================================================
 
+_dialog_default_participant = (
+    DEFAULT_PARTICIPANT if DEFAULT_PARTICIPANT in PARTICIPANT_CHOICES else "1"
+)
+_dialog_default_session = _suggested_next_session(
+    _dialog_default_participant,
+    _participant_data_dir(_dialog_default_participant),
+)
 session_dlg = gui.Dlg(title="Prospective MCP Session")
 session_dlg.addField(
     "Participant",
-    initial=DEFAULT_PARTICIPANT,
+    initial=_dialog_default_participant,
     choices=PARTICIPANT_CHOICES,
 )
-session_dlg.addField("Session", initial="1")
+session_dlg.addField("Session", initial=_dialog_default_session)
+session_dlg.addField(
+    "Handedness",
+    initial="right",
+    choices=["right", "left", "ambidextrous", "other"],
+)
+session_dlg.addField(
+    "Color vision",
+    initial="normal",
+    choices=["normal", "not normal", "unknown"],
+)
+session_dlg.addField(
+    "Eye vision",
+    initial="normal",
+    choices=["normal", "corrected", "not normal", "unknown"],
+)
 session_dlg.show()
 if not session_dlg.OK:
     core.quit()
@@ -669,6 +1139,19 @@ if PARTICIPANT not in PARTICIPANT_CHOICES:
 SESSION = int(session_dlg.data[1])
 if SESSION < 1 or SESSION > MAX_SESSION:
     raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
+
+HANDEDNESS = str(session_dlg.data[2]).strip()
+COLOR_VISION = str(session_dlg.data[3]).strip()
+EYE_VISION = str(session_dlg.data[4]).strip()
+
+PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
+(
+    _out_trials_path,
+    _out_metadata_path,
+    DATA_FILE_STEM,
+    REPEAT_DATA_NOTE,
+    REPEAT_REASON,
+) = _resolve_data_output_paths(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
 
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
@@ -1045,6 +1528,14 @@ if INCLUDE_BURNIN:
 cum_reward = 0.0
 prev_block = None
 completed_normally = True
+trial_index = 0
+first_trial_save = True
+csv_columns = None
+exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+session_start_perf = time.perf_counter()
+PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+print(f"Trial data will be saved to: {_out_trials_path}")
+print(f"Metadata will be saved to: {_out_metadata_path}")
 
 for trial in trials:
     current_block = trial["block"]
@@ -1075,12 +1566,15 @@ for trial in trials:
                 break
 
     trial_colors = trial["trial_colors"]
+    trial_start_jitter_time_ms = FIXATION_TIME * 1000
 
     fixation.draw()
     win.flip()
     core.wait(FIXATION_TIME)
 
     event.clearEvents()
+    trial_clock = core.Clock()
+    trial_clock.reset()
 
     single_center = trial.get("single_center", DISPLAY_CONFIG.get("single_center", False))
     if single_center:
@@ -1172,13 +1666,13 @@ for trial in trials:
             square.draw()
             label.draw()
 
-    clock = core.Clock()
+    trial_clock.reset()
     win.flip()
-    clock.reset()
+    cue_time = trial_clock.getTime()
     keys = event.waitKeys(
         keyList=ALL_RESPONSE_KEYS,
         maxWait=MAX_RESPONSE_TIME,
-        timeStamped=clock,
+        timeStamped=trial_clock,
     )
 
     max_reward_ccrp = max(trial["reward_values"]) if trial["reward_values"] else 0
@@ -1199,6 +1693,7 @@ for trial in trials:
             completed_normally = False
             break
         prev_block = current_block
+        trial_index += 1
         continue
 
     if timed_out:
@@ -1263,7 +1758,60 @@ for trial in trials:
 
     win.flip()
     core.wait(ITI_TIME)
+    end_trial_time = trial_clock.getTime()
+
+    now = datetime.now()
+    trial_wall_clock_str = (
+        now.strftime("%Y-%m-%d %H:%M:%S") + f".{now.microsecond // 1000:03d}"
+    )
+    session_elapsed_sec = time.perf_counter() - session_start_perf
+    position_to_color_id, position_to_reward = _trial_design_maps(trial)
+    row = _build_trial_row(
+        trial=trial,
+        position_to_color_id=position_to_color_id,
+        position_to_reward=position_to_reward,
+        pressed_key=pressed_key,
+        rt_ms=rt,
+        cue_time=cue_time,
+        end_trial_time=end_trial_time,
+        actual_reward=actual_reward,
+        max_reward=max_reward,
+        cum_reward=cum_reward,
+        trial_index=trial_index,
+        trial_start_jitter_time_ms=trial_start_jitter_time_ms,
+        trial_wall_clock_str=trial_wall_clock_str,
+        session_elapsed_sec=session_elapsed_sec,
+        trial_note=REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
+    )
+
+    if csv_columns is None:
+        csv_columns = list(row.keys())
+    with open(
+        _out_trials_path,
+        "w" if first_trial_save else "a",
+        encoding="utf-8",
+        newline="",
+    ) as fp:
+        writer = csv.DictWriter(fp, fieldnames=csv_columns)
+        if first_trial_save:
+            writer.writeheader()
+            metadata = _build_metadata(
+                exp_start_time_str=exp_start_time_str,
+                n_blocks=SESSION_N_BLOCKS,
+                n_trials_total=N_TRIALS,
+                n_trials_per_block=TRIALS_PER_BLOCK,
+                include_burnin_block=INCLUDE_BURNIN,
+                include_pm_practice_block=INCLUDE_PM_PRACTICE,
+                display_config=DISPLAY_CONFIG,
+                dat_columns=csv_columns,
+            )
+            with open(_out_metadata_path, "w", encoding="utf-8") as meta_fp:
+                json.dump(metadata, meta_fp, indent=2, ensure_ascii=False)
+        writer.writerow(row)
+    first_trial_save = False
+
     prev_block = current_block
+    trial_index += 1
 
 
 # =============================================================================
