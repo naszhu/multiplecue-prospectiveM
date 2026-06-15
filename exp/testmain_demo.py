@@ -37,11 +37,22 @@ ITI_TIME = 0.3
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
+# Pseudo block structure (placeholder until full session blocks are wired up).
+N_BLOCKS = 2
+TRIALS_PER_BLOCK_MAIN = 3
+FIRST_WARMUP_TRIALS = 1
+OTHER_WARMUP_TRIALS = 1
+INCLUDE_BURNIN_BLOCK = True
+BURNIN_TRIALS_PER_BLOCK = 2
+BURNIN_BLOCK_NUMBER = 0
+INSTRUCTION_LETTER_SIZE_DEG = 0.6
+
 # Use the same "deg + StimFactor-like" sizing style as the example file.
 UNITS = "deg"
 BASE_STIM_FACTOR = 0.04
 STIM_SCALE = 1.55
 STIM_FACTOR = BASE_STIM_FACTOR * STIM_SCALE
+INSTRUCTION_WRAP_WIDTH_DEG = 800 * STIM_FACTOR
 # Keep disk placement independent from STIM_SCALE so the triangle geometry
 # stays like before (only disk size changes, not disk-to-disk distance).
 POSITION_SCALE = 1.0
@@ -177,10 +188,56 @@ for i in range(len(trials)):
 trials = forced_trials
 
 
+def annotate_trials_with_pseudo_blocks(trial_list):
+    """Add block metadata fields used by testmain.py feedback and block breaks."""
+    annotated = []
+    trial_index = 0
+
+    if INCLUDE_BURNIN_BLOCK:
+        for trial_in_block in range(1, BURNIN_TRIALS_PER_BLOCK + 1):
+            trial = dict(trial_list[trial_index])
+            trial_index += 1
+            trial.update(
+                block=BURNIN_BLOCK_NUMBER,
+                trial_in_block=trial_in_block,
+                warm_up=0,
+                burn_in_block=1,
+            )
+            annotated.append(trial)
+
+    trials_remaining = len(trial_list) - trial_index
+    trials_per_block = trials_remaining // N_BLOCKS
+    # Any remainder goes into the final block.
+    for block_number in range(1, N_BLOCKS + 1):
+        if block_number == N_BLOCKS:
+            block_size = len(trial_list) - trial_index
+        else:
+            block_size = trials_per_block
+        warmup_trials = FIRST_WARMUP_TRIALS if block_number == 1 else OTHER_WARMUP_TRIALS
+        for trial_in_block in range(1, block_size + 1):
+            trial = dict(trial_list[trial_index])
+            trial_index += 1
+            trial.update(
+                block=block_number,
+                trial_in_block=trial_in_block,
+                warm_up=1 if trial_in_block <= warmup_trials else 0,
+                burn_in_block=0,
+            )
+            annotated.append(trial)
+
+    if trial_index != len(trial_list):
+        raise ValueError("Pseudo block layout does not cover all demo trials.")
+
+    return annotated
+
+
+trials = annotate_trials_with_pseudo_blocks(trials)
+N_TRIALS = len(trials)
+
+
 # =============================================================================
 # WINDOW AND STIMULI
 # =============================================================================
-
 # With units="deg", PsychoPy needs a monitor with known pixel size.
 mon = monitors.Monitor(MONITOR_NAME)
 mon.setSizePix(WINDOW_SIZE)
@@ -264,7 +321,38 @@ end_text = visual.TextStim(
     text="End of session!\n\n\nContact the Experimenter",
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    height=0.6,
+    height=INSTRUCTION_LETTER_SIZE_DEG,
+    units=UNITS,
+)
+esc_confirm_text = visual.TextStim(
+    win,
+    text="Press ESC again to exit\n\nPress SPACE to continue",
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    height=INSTRUCTION_LETTER_SIZE_DEG,
+    units=UNITS,
+)
+block_break_text = visual.TextStim(
+    win,
+    text="",
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    height=INSTRUCTION_LETTER_SIZE_DEG,
+    wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+    units=UNITS,
+)
+burnin_instruction_text = visual.TextStim(
+    win,
+    text=(
+        "Burn-in block complete.\n\n"
+        "This is a placeholder transition screen matching the full experiment.\n\n"
+        "Press SPACE to continue to Block 1."
+    ),
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    height=INSTRUCTION_LETTER_SIZE_DEG,
+    wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+    units=UNITS,
 )
 
 # -------------------------------------------------------------------------
@@ -396,19 +484,121 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
     raise ValueError(f"Unknown focal PM style: {style}")
 
 
+def _confirm_exit_or_continue():
+    """After ESC: return True if user confirms exit (second ESC), False to continue."""
+    esc_confirm_text.draw()
+    win.flip()
+    keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY])
+    return bool(keys and keys[0] == QUIT_KEY)
+
+
+def _wait_space_or_exit():
+    """Wait for space to continue. Return False if user exits via double ESC."""
+    while True:
+        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY])
+        if not keys:
+            continue
+        if keys[0] == START_KEY:
+            return True
+        if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
+            return False
+
+
+def _show_instruction_screen(instruction_stim):
+    """Draw an instruction screen and wait for SPACE (or double-ESC exit)."""
+    instruction_stim.draw()
+    win.flip()
+    return _wait_space_or_exit()
+
+
+def _trials_in_block(block_number):
+    """Total trials expected in a pseudo block, including warm-up trials."""
+    if block_number == BURNIN_BLOCK_NUMBER:
+        return BURNIN_TRIALS_PER_BLOCK
+    warmup_trials = FIRST_WARMUP_TRIALS if block_number == 1 else OTHER_WARMUP_TRIALS
+    return warmup_trials + TRIALS_PER_BLOCK_MAIN
+
+
+def _set_feedback4_text(trial):
+    """Match multiplecue-responsebox feedback4 formatting."""
+    current_block = trial["block"]
+    trial_in_block = trial["trial_in_block"]
+    if trial.get("burn_in_block"):
+        feedback4.setText(
+            "Burn-in     Trial  "
+            + str(trial_in_block)
+            + " / "
+            + str(BURNIN_TRIALS_PER_BLOCK)
+        )
+        return
+
+    n_in_block = _trials_in_block(current_block)
+    feedback4.setText(
+        "Block  "
+        + str(current_block)
+        + " / "
+        + str(N_BLOCKS)
+        + "     Trial  "
+        + str(trial_in_block)
+        + " / "
+        + str(n_in_block)
+    )
+
+
 # =============================================================================
 # EXPERIMENT START
 # =============================================================================
 
 instructions.draw()
 win.flip()
-event.waitKeys(keyList=[START_KEY])
+if not _wait_space_or_exit():
+    win.close()
+    core.quit()
+
+if INCLUDE_BURNIN_BLOCK:
+    # Placeholder burn-in preamble, matching the full experiment's extra instruction screen.
+    burnin_intro_text = visual.TextStim(
+        win,
+        text=(
+            "Pseudo burn-in block.\n\n"
+            "This placeholder block mirrors the burn-in transition used in the full task.\n\n"
+            "Press SPACE to begin."
+        ),
+        color=FEEDBACK_TEXT_COLOR,
+        colorSpace=COLOR_SPACE,
+        height=INSTRUCTION_LETTER_SIZE_DEG,
+        wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        units=UNITS,
+    )
+    if not _show_instruction_screen(burnin_intro_text):
+        win.close()
+        core.quit()
 
 cum_reward = 0.0
 position_names = list(POSITIONS.keys())
 color_names = list(COLOR_KEYS.keys())
+prev_block = None
+completed_normally = True
 
 for trial_number, trial in enumerate(trials, start=1):
+    current_block = trial["block"]
+    if prev_block is not None and current_block != prev_block:
+        if prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
+            if not _show_instruction_screen(burnin_instruction_text):
+                completed_normally = False
+                break
+        else:
+            block_break_text.setText(
+                f"End of Block {prev_block}.\n\n"
+                f"Next: Block {current_block} of {N_BLOCKS}.\n\n"
+                "Press SPACE to continue."
+            )
+            block_break_text.draw()
+            win.flip()
+            if not _wait_space_or_exit():
+                completed_normally = False
+                break
+
     # Randomize which color appears at each position, so location does not predict response.
     trial_colors = color_names[:]
     random.shuffle(trial_colors)
@@ -531,7 +721,11 @@ for trial_number, trial in enumerate(trials, start=1):
         rt = rt_seconds * 1000
 
     if pressed_key == QUIT_KEY:
-        break
+        if _confirm_exit_or_continue():
+            completed_normally = False
+            break
+        prev_block = current_block
+        continue
 
     if timed_out:
         max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
@@ -572,7 +766,7 @@ for trial_number, trial in enumerate(trials, start=1):
     feedback1.setColor(FEEDBACK_TEXT_COLOR)
     feedback2.setText("%.2f DKK" % cum_reward)
     feedback3.setText(("%5.0f" % rt + " ms") if rt is not None else "")
-    feedback4.setText("Trial  " + str(trial_number) + " / " + str(N_TRIALS))
+    _set_feedback4_text(trial)
 
     feedback1.draw()
     feedback2.draw()
@@ -584,15 +778,17 @@ for trial_number, trial in enumerate(trials, start=1):
 
     win.flip()
     core.wait(ITI_TIME)
+    prev_block = current_block
 
 
 # =============================================================================
 # END
 # =============================================================================
 
-end_text.draw()
-win.flip()
-event.waitKeys()
+if completed_normally:
+    end_text.draw()
+    win.flip()
+    event.waitKeys()
 
 win.close()
 core.quit()
