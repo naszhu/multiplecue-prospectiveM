@@ -24,16 +24,8 @@ from psychopy import gui, visual, core, event, monitors
 
 EXP_DIR = Path(__file__).resolve().parent
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
-INSTRUCTION_FONT_CJK = (
-    EXP_DIR / "fonts" / "NotoSansSC-Regular.otf"
-    if (EXP_DIR / "fonts" / "NotoSansSC-Regular.otf").exists()
-    else EXP_DIR.parent.parent
-    / "multiplecue-responsebox"
-    / "exp"
-    / "fonts"
-    / "NotoSansSC-Regular.otf"
-)
-INSTRUCTION_FONT_CJK_NAME = "Noto Sans SC"
+INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
+INSTRUCTION_FONT_CJK_NAME = "Noto Sans CJK SC"
 INSTRUCTION_LANGUAGE_SUFFIX = {"en": "", "zh": " zh", "da": " da"}
 INSTRUCTION_LANGUAGE_SWITCHER = {
     "en": "If you want to change to 中文 press c; for dansk press d.\n\n",
@@ -115,7 +107,7 @@ SESSION_DISPLAY_OVERRIDES = {}
 
 # Debug: set enabled=True for a 12-trial PM smoke session (6 focal + 6 nonfocal, one per cue).
 DEBUG_CONFIG = {
-    "enabled": True,
+    "enabled": False,
 }
 
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
@@ -732,16 +724,11 @@ def get_session_display_config(session: int) -> dict:
     """Display options for a session; defaults unless overridden."""
     cfg = {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
     if session == 1:
-        # One circle at center; color keymap visible.
         cfg.update(single_center=True, triangle_layout=False, show_color_keymap=True)
-    elif session == 2:
-        # Triangle layout; single-cue trials; color keymap visible.
-        cfg.update(single_center=False, triangle_layout=True, show_color_keymap=True)
-    elif session == 3:
-        # Triangle layout; dual-cue trials; color keymap visible.
+    elif session in (2, 3):
         cfg.update(single_center=False, triangle_layout=True, show_color_keymap=True)
     else:
-        # Sessions 4+: triangle layout; no on-screen color keymap.
+        # Sessions 4+: triangle layout, no on-screen color-key legend.
         cfg.update(single_center=False, triangle_layout=True, show_color_keymap=False)
     return cfg
 
