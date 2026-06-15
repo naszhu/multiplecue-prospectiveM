@@ -12,7 +12,6 @@ import math
 import random
 from psychopy import visual, core, event, monitors
 
-
 # =============================================================================
 # CONFIG: CHANGE THESE VALUES FIRST
 # =============================================================================
@@ -78,6 +77,8 @@ FOCAL_PM_PATCH_OFFSET = 0.55 * CIRCLE_RADIUS
 FOCAL_PM_HALO_RADIUS = CIRCLE_RADIUS * 1.08
 FOCAL_PM_HALO_LINE_WIDTH = 7
 FOCAL_PM_MARKER_BG_RADIUS = INNER_CIRCLE_RADIUS * 0.72
+# Single focal PM style for all focal trials (center ring visible with or without reward numeral).
+FOCAL_PM_STYLE = "center_ring"
 
 # Isosceles triangle layout:
 # - top is centered on x=0
@@ -148,7 +149,6 @@ trials = [
         "reward_values": [0, 0, 3],
         "pm_type": "focal",
         "pm_position": "bottom_right",
-        "focal_pm_style": "inner_dot",
     },
     {"reward_values": [2, 1, 0], "pm_type": None, "pm_position": None},
     {"reward_values": [3, 0, 1], "pm_type": "nonfocal", "pm_position": "top"},
@@ -157,7 +157,6 @@ trials = [
         "reward_values": [1, 0, 3],
         "pm_type": "focal",
         "pm_position": "bottom_left",
-        "focal_pm_style": "center_ring",
     },
     {"reward_values": [0, 1, 2], "pm_type": None, "pm_position": None},
     {"reward_values": [2, 0, 3], "pm_type": "nonfocal", "pm_position": "bottom_right"},
@@ -625,7 +624,7 @@ for trial_number, trial in enumerate(trials, start=1):
         is_nonfocal_pm_target = (
             trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]
         )
-        focal_pm_style = trial.get("focal_pm_style", "inner_dot")
+        focal_pm_style = trial.get("focal_pm_style", FOCAL_PM_STYLE)
 
         # Focal PM keeps the task color; an orange marker is added later.
         outer_circle = visual.Circle(
