@@ -56,28 +56,32 @@ ITI_TIME = 0.3
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
-BASE_STIM_FACTOR = 0.04
-STIM_SCALE = 1.55
-STIM_FACTOR = BASE_STIM_FACTOR * STIM_SCALE
-POSITION_FACTOR = BASE_STIM_FACTOR
+# Stimulus sizing and layout (same paradigm formulas as multiplecue-responsebox/exp/testmain.py)
+STIM_FACTOR = 0.04
+CUE_OUTER_RADIUS_DEG = 20 * STIM_FACTOR   # ColorTargetSize = 0.8 deg
+CUE_INNER_RADIUS_DEG = 8.75 * STIM_FACTOR  # CueBoxSize/2 = 0.35 deg
+CUE_TEXT_HEIGHT_DEG = 14 * STIM_FACTOR    # CueTextSize = 0.56 deg
+CIRCLE_EDGES = 200
 MONITOR_NAME = "pm_ccrp_monitor"
 MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
 
-CIRCLE_RADIUS = 20 * STIM_FACTOR
-INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR
-REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
 
-FOCAL_PM_RING_RADIUS = (CIRCLE_RADIUS + INNER_CIRCLE_RADIUS) / 2
+FOCAL_PM_RING_RADIUS = (CUE_OUTER_RADIUS_DEG + CUE_INNER_RADIUS_DEG) / 2
 FOCAL_PM_RING_LINE_WIDTH = 5
 FOCAL_PM_STYLE = "center_ring"
 
-TOP_Y = 60 * POSITION_FACTOR
-BOTTOM_Y = -50 * POSITION_FACTOR
-BOTTOM_X = 60 * POSITION_FACTOR
-POSITIONS = [(0.0, TOP_Y), (-BOTTOM_X, BOTTOM_Y), (BOTTOM_X, BOTTOM_Y)]
+# 3-position triangle: paradigm coefficients * StimFactor (not scaled separately)
+TRIANGLE_TOP_Y = 60 * STIM_FACTOR
+TRIANGLE_BOTTOM_Y = -50 * STIM_FACTOR
+TRIANGLE_BOTTOM_X = 60 * STIM_FACTOR
+POSITIONS = [
+    (0.0, TRIANGLE_TOP_Y),
+    (-TRIANGLE_BOTTOM_X, TRIANGLE_BOTTOM_Y),
+    (TRIANGLE_BOTTOM_X, TRIANGLE_BOTTOM_Y),
+]
 POSITION_NAMES = ["top", "bottom_left", "bottom_right"]
 
 COLORS = {
@@ -107,12 +111,35 @@ FEEDBACK_TEXT_COLOR = COLORS["white"]
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
 INSTRUCTION_WRAP_WIDTH_DEG = 800 * STIM_FACTOR
 
-KEYMAP_SQUARE_SIZE = 30 * STIM_FACTOR
-KEYMAP_TEXT_HEIGHT = 0.55 * KEYMAP_SQUARE_SIZE
-KEYMAP_DISTANCE = 50 * STIM_FACTOR
-KEYMAP_EXTRA_DOWN = 0.75 * KEYMAP_DISTANCE
-KEYMAP_BASE_Y = (-150 * STIM_FACTOR) - KEYMAP_EXTRA_DOWN
-KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE
+RESPONSE_COLOR_SIZE_DEG = 30 * STIM_FACTOR
+RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR
+COLOR_MAP_Y_DEG = -150 * STIM_FACTOR
+COLOR_MAP_LAYOUT = "keyboard"  # "horizontal" or "keyboard" (responsebox options)
+COLOR_KEY_ORDER = ["n", "j", "k"]
+
+
+def _color_map_positions(layout: str, n_slots: int) -> list[tuple[float, float]]:
+    """Same geometry as multiplecue-responsebox/exp/testmain.py _color_map_positions."""
+    d = RESPONSE_COLOR_DISTANCE_DEG
+    base_y = COLOR_MAP_Y_DEG
+    if layout == "horizontal":
+        return [
+            (d * (-n_slots / 2 + 0.5 + i), base_y)
+            for i in range(n_slots)
+        ]
+    row_h = d * 0.6
+    col_w = d * 1.4
+    stagger = d * 0.35
+    four = [
+        (-col_w, base_y + row_h),
+        (-col_w + stagger, base_y - row_h),
+        (col_w, base_y + row_h),
+        (col_w - stagger, base_y - row_h),
+    ]
+    if n_slots == 3:
+        # NJK: bottom-left, top-left, top-right (C, D, K slots from 4-key keyboard layout)
+        return [four[1], four[0], four[2]]
+    return four[:n_slots]
 
 EXPERIMENT_NAME = "PM_MCP"
 CODE_VERSION = "1.0.0"
@@ -259,26 +286,28 @@ feedback4 = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR, colorSpace=COLOR_SPACE, units=UNITS, opacity=STIMULUS_OPACITY,
 )
 
-# Keymap (NJK)
-keymap_center = (0.0, KEYMAP_BASE_Y)
-raw_key_offsets = {
-    "n": (-0.6 * KEYMAP_DISTANCE, -KEYMAP_ROW_OFFSET),
-    "j": (0.0, KEYMAP_ROW_OFFSET),
-    "k": (1.0 * KEYMAP_DISTANCE, KEYMAP_ROW_OFFSET),
-}
-mean_x = sum(v[0] for v in raw_key_offsets.values()) / 3
-mean_y = sum(v[1] for v in raw_key_offsets.values()) / 3
-key_offsets = {k: (xy[0] - mean_x, xy[1] - mean_y) for k, xy in raw_key_offsets.items()}
+# Keymap (NJK) — positions from responsebox color-map algorithm
+color_map_positions = _color_map_positions(COLOR_MAP_LAYOUT, len(COLOR_KEY_ORDER))
 keymap_stims = []
-for key in ["n", "j", "k"]:
-    pos = (keymap_center[0] + key_offsets[key][0], keymap_center[1] + key_offsets[key][1])
+for key, pos in zip(COLOR_KEY_ORDER, color_map_positions):
     square = visual.Rect(
-        win, width=KEYMAP_SQUARE_SIZE, height=KEYMAP_SQUARE_SIZE, pos=pos,
-        fillColor=COLORS[KEY_TO_COLOR[key]], fillColorSpace=COLOR_SPACE, lineColor=None,
+        win,
+        width=RESPONSE_COLOR_SIZE_DEG,
+        height=RESPONSE_COLOR_SIZE_DEG,
+        pos=pos,
+        fillColor=COLORS[KEY_TO_COLOR[key]],
+        fillColorSpace=COLOR_SPACE,
+        lineColor=None,
+        units=UNITS,
     )
     label = visual.TextStim(
-        win, text=key.upper(), pos=pos, height=KEYMAP_TEXT_HEIGHT,
-        color=COLORS["white"], colorSpace=COLOR_SPACE,
+        win,
+        text=key.upper(),
+        pos=pos,
+        height=CUE_TEXT_HEIGHT_DEG,
+        color=COLORS["white"],
+        colorSpace=COLOR_SPACE,
+        units=UNITS,
     )
     keymap_stims.append((square, label))
 
@@ -287,7 +316,7 @@ def draw_focal_pm_marker(pos):
     visual.Circle(
         win, radius=FOCAL_PM_RING_RADIUS, pos=pos, fillColor=None,
         lineColor=COLORS["orange"], lineColorSpace=COLOR_SPACE,
-        lineWidth=FOCAL_PM_RING_LINE_WIDTH, edges=128,
+        lineWidth=FOCAL_PM_RING_LINE_WIDTH, edges=CIRCLE_EDGES,
     ).draw()
 
 
@@ -295,10 +324,10 @@ def draw_nonfocal_dashed_outline(pos):
     for dash_start in range(0, 360, 24):
         angle1 = math.radians(dash_start)
         angle2 = math.radians(dash_start + 12)
-        x1 = pos[0] + CIRCLE_RADIUS * math.cos(angle1)
-        y1 = pos[1] + CIRCLE_RADIUS * math.sin(angle1)
-        x2 = pos[0] + CIRCLE_RADIUS * math.cos(angle2)
-        y2 = pos[1] + CIRCLE_RADIUS * math.sin(angle2)
+        x1 = pos[0] + CUE_OUTER_RADIUS_DEG * math.cos(angle1)
+        y1 = pos[1] + CUE_OUTER_RADIUS_DEG * math.sin(angle1)
+        x2 = pos[0] + CUE_OUTER_RADIUS_DEG * math.cos(angle2)
+        y2 = pos[1] + CUE_OUTER_RADIUS_DEG * math.sin(angle2)
         visual.Line(
             win, start=(x1, y1), end=(x2, y2),
             lineColor=COLORS["white"], lineColorSpace=COLOR_SPACE,
@@ -358,19 +387,20 @@ def _draw_trial_stimulus(trial: TrialPlan):
         is_nonfocal = trial.trial_pm_role == "nonfocal" and trial.pm_position_idx == pos_idx
 
         outer_circle = visual.Circle(
-            win, radius=CIRCLE_RADIUS, pos=pos, fillColor=COLORS[color_name],
+            win, radius=CUE_OUTER_RADIUS_DEG, pos=pos, fillColor=COLORS[color_name],
             lineColor=None if is_nonfocal else COLORS["white"],
             lineColorSpace=COLOR_SPACE if not is_nonfocal else None,
             lineWidth=0 if is_nonfocal else BORDER_LINE_WIDTH,
-            fillColorSpace=COLOR_SPACE, edges=128,
+            fillColorSpace=COLOR_SPACE, edges=CIRCLE_EDGES,
         )
         inner_circle = visual.Circle(
-            win, radius=INNER_CIRCLE_RADIUS, pos=pos, fillColor=COLORS["white"],
-            lineColor=None, fillColorSpace=COLOR_SPACE, edges=128,
+            win, radius=CUE_INNER_RADIUS_DEG, pos=pos, fillColor=COLORS["white"],
+            lineColor=None, fillColorSpace=COLOR_SPACE, edges=CIRCLE_EDGES,
         )
         reward_text = visual.TextStim(
             win, text=str(reward_value) if reward_value > 0 else "", pos=pos,
-            color=COLORS["black"], colorSpace=COLOR_SPACE, height=REWARD_TEXT_HEIGHT,
+            color=COLORS["black"], colorSpace=COLOR_SPACE, height=CUE_TEXT_HEIGHT_DEG,
+            units=UNITS,
         )
         outer_circle.draw()
         if is_focal:
