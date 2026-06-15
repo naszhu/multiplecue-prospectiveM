@@ -78,9 +78,9 @@ DEFAULT_DISPLAY = {
 }
 SESSION_DISPLAY_OVERRIDES = {}
 
-# Debug: set enabled=True for a 12-trial PM smoke session (6 focal + 6 nonfocal, one per cue).
+# Debug PM smoke session (12 trials). Does not apply to session 1 (center single-cue training).
 DEBUG_CONFIG = {
-    "enabled": True,
+    "enabled": False,
 }
 
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
@@ -171,14 +171,16 @@ FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
 
 
-def _triangle_bottom_y_deg() -> float:
-    """Lowest point of the three cue disks (center y minus outer radius)."""
+def _lowest_cue_bottom_y_deg(*, single_center: bool = False) -> float:
+    """Lowest point of the visible cue disk(s)."""
+    if single_center:
+        return CENTER_POSITION[1] - CUE_OUTER_RADIUS_DEG
     return min(pos[1] for pos in POSITIONS.values()) - CUE_OUTER_RADIUS_DEG
 
 
-def _njk_keymap_positions() -> dict:
+def _njk_keymap_positions(*, single_center: bool = False) -> dict:
     """
-    NJK keyboard color-key legend below the triangle cues.
+    NJK keyboard color-key legend below the cues.
 
     Geometry (d = RESPONSE_COLOR_DISTANCE_DEG):
       - J and K on the top row; K is d to the right of J.
@@ -188,24 +190,14 @@ def _njk_keymap_positions() -> dict:
     """
     d = RESPONSE_COLOR_DISTANCE_DEG
     row_spacing = d
-    gap_below_triangle = d * KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS
-    top_row_y = _triangle_bottom_y_deg() - gap_below_triangle
+    gap_below_cues = d * KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS
+    top_row_y = _lowest_cue_bottom_y_deg(single_center=single_center) - gap_below_cues
     bottom_row_y = top_row_y - row_spacing
     return {
         "j": (0.0, top_row_y),
         "k": (d, top_row_y),
         "n": (-d, bottom_row_y),
     }
-
-
-CUE_CONDITIONS = [
-    {"values": (1,), "label": "(1)"},
-    {"values": (2,), "label": "(2)"},
-    {"values": (3,), "label": "(3)"},
-    {"values": (1, 2), "label": "(1,2)"},
-    {"values": (1, 3), "label": "(1,3)"},
-    {"values": (2, 3), "label": "(2,3)"},
-]
 
 
 # =============================================================================
@@ -253,10 +245,45 @@ def session_phase_for(session: int, participant_id: str) -> str:
 
 def get_session_display_config(session: int) -> dict:
     """Display options for a session; defaults unless overridden."""
-    return {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
+    cfg = {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
+    # Session 1: one single-cue disk at screen center (match testmain.py session 1).
+    if session == 1:
+        cfg.update(single_center=True, triangle_layout=False, show_color_keymap=True)
+    return cfg
 
 
-def _pool_for_cue_condition(cue_condition: dict) -> list:
+def get_session_generation_config(session: int) -> dict:
+    """Trial-generation options per session (cue conditions, center layout)."""
+    if session == 1:
+        defaults = {
+            "cue_conditions": SINGLE_CUE_CONDITIONS,
+            "single_center": True,
+            "n_cue_conditions": len(SINGLE_CUE_CONDITIONS),
+        }
+    else:
+        defaults = {
+            "cue_conditions": CUE_CONDITIONS,
+            "single_center": False,
+            "n_cue_conditions": N_CUE_CONDITIONS,
+        }
+    return {**defaults, **SESSION_GENERATION_OVERRIDES.get(session, {})}
+
+
+CUE_CONDITIONS = [
+    {"values": (1,), "label": "(1)"},
+    {"values": (2,), "label": "(2)"},
+    {"values": (3,), "label": "(3)"},
+    {"values": (1, 2), "label": "(1,2)"},
+    {"values": (1, 3), "label": "(1,3)"},
+    {"values": (2, 3), "label": "(2,3)"},
+]
+SINGLE_CUE_CONDITIONS = CUE_CONDITIONS[:3]
+CENTER_POSITION = (0.0, 0.0)
+CENTER_POSITION_NAME = "center"
+SESSION_GENERATION_OVERRIDES = {}
+
+
+def _pool_for_cue_condition(cue_condition: dict, *, center: bool = False) -> list:
     """
     Enumerate all trial variants for one cue condition (reward position + color layout).
     Adapted from multiplecue-responsebox/exp/testmain.py _pool_for_reward_condition.
@@ -271,6 +298,16 @@ def _pool_for_cue_condition(cue_condition: dict) -> list:
             "position_to_reward": position_to_reward,
             "cue_condition": condition_label,
         }
+
+    # Session 1: one stimulus at center; only position 0 used (match testmain cfg["center"]).
+    if center:
+        reward_value = reward_values[0]
+        out = []
+        for color in all_colors:
+            position_to_color = {i: color if i == 0 else None for i in range(N_POSITIONS)}
+            position_to_reward = {i: reward_value if i == 0 else 0 for i in range(N_POSITIONS)}
+            out.append(make_variant(position_to_color, position_to_reward))
+        return out
 
     if len(reward_values) == 1:
         reward_value = reward_values[0]
@@ -296,30 +333,44 @@ def _pool_for_cue_condition(cue_condition: dict) -> list:
     return out
 
 
-CUE_POOLS = [_pool_for_cue_condition(c) for c in CUE_CONDITIONS]
+def _cue_pools_for_session(session_number: int) -> list:
+    gen = get_session_generation_config(session_number)
+    return [
+        _pool_for_cue_condition(c, center=gen["single_center"])
+        for c in gen["cue_conditions"]
+    ]
 
 
-def _variant_to_lists(variant: dict):
+def _variant_to_lists(variant: dict, *, single_center: bool = False):
     """Convert pool variant maps to position-ordered lists."""
+    if single_center:
+        return (
+            [variant["position_to_reward"][0], 0, 0],
+            [variant["position_to_color"][0], "", ""],
+            variant["cue_condition"],
+        )
     reward_values = [variant["position_to_reward"][i] for i in range(N_POSITIONS)]
     trial_colors = [variant["position_to_color"][i] for i in range(N_POSITIONS)]
     return reward_values, trial_colors, variant["cue_condition"]
 
 
-def _apply_variant_to_stub(stub: dict, variant: dict):
-    reward_values, trial_colors, cue_condition = _variant_to_lists(variant)
+def _apply_variant_to_stub(stub: dict, variant: dict, *, single_center: bool = False):
+    reward_values, trial_colors, cue_condition = _variant_to_lists(
+        variant, single_center=single_center
+    )
     stub["reward_values"] = reward_values
     stub["trial_colors"] = trial_colors
     stub["cue_condition"] = cue_condition
+    stub["single_center"] = single_center
 
 
-def _ongoing_reps_for_cue(cue_index: int, session_phase: str) -> int:
+def _ongoing_reps_for_cue(cue_index: int, session_phase: str, n_cue_conditions: int) -> int:
     if session_phase in ("focal_pm", "nonfocal_pm"):
-        base = ONGOING_REPS_PER_CUE_PM
-        remainder = ONGOING_REMAINDER_PM
+        base = ONGOING_PER_BLOCK_PM_PHASE // n_cue_conditions
+        remainder = ONGOING_PER_BLOCK_PM_PHASE % n_cue_conditions
     else:
-        base = REPS_PER_CUE_PER_BLOCK
-        remainder = BLOCK_TRIAL_REMAINDER
+        base = TRIALS_PER_BLOCK // n_cue_conditions
+        remainder = TRIALS_PER_BLOCK % n_cue_conditions
     return base + (1 if cue_index < remainder else 0)
 
 
@@ -334,28 +385,36 @@ def _pm_trial_kind_for_phase(session_phase: str):
 def _make_block(
     rng: random.Random,
     session_phase: str,
+    session_number: int,
     *,
     burn_in_block: int = 0,
 ) -> list:
     """Build one block: cue-balanced stubs, pool draw per stub, within-block shuffle."""
+    gen = get_session_generation_config(session_number)
+    cue_conditions = gen["cue_conditions"]
+    single_center = gen["single_center"]
+    cue_pools = _cue_pools_for_session(session_number)
+    pm_positions = [CENTER_POSITION_NAME] if single_center else POSITION_NAMES
+
     block_trials = []
     has_pm = session_phase in ("focal_pm", "nonfocal_pm")
     pm_kind = _pm_trial_kind_for_phase(session_phase)
+    n_cue_conditions = gen["n_cue_conditions"]
 
-    for cue_index, cue_condition in enumerate(CUE_CONDITIONS):
-        pool = CUE_POOLS[cue_index]
-        n_ongoing = _ongoing_reps_for_cue(cue_index, session_phase)
+    for cue_index, _cue_condition in enumerate(cue_conditions):
+        pool = cue_pools[cue_index]
+        n_ongoing = _ongoing_reps_for_cue(cue_index, session_phase, n_cue_conditions)
 
         if has_pm:
             pm_stub = {
                 "session_phase": session_phase,
                 "is_pm_trial": True,
                 "pm_trial_kind": pm_kind,
-                "pm_position": rng.choice(POSITION_NAMES),
+                "pm_position": rng.choice(pm_positions),
                 "warm_up": 0,
                 "burn_in_block": burn_in_block,
             }
-            _apply_variant_to_stub(pm_stub, rng.choice(pool))
+            _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(pm_stub)
 
         for _ in range(n_ongoing):
@@ -367,7 +426,7 @@ def _make_block(
                 "warm_up": 0,
                 "burn_in_block": burn_in_block,
             }
-            _apply_variant_to_stub(ongoing_stub, rng.choice(pool))
+            _apply_variant_to_stub(ongoing_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(ongoing_stub)
 
     rng.shuffle(block_trials)
@@ -390,7 +449,7 @@ def build_session_trials(
     trial_in_session = 0
 
     if include_burnin_block:
-        burnin_block = _make_block(rng, session_phase, burn_in_block=1)
+        burnin_block = _make_block(rng, session_phase, session_number, burn_in_block=1)
         if len(burnin_block) > BURNIN_TRIALS_PER_BLOCK:
             burnin_block = burnin_block[:BURNIN_TRIALS_PER_BLOCK]
         for trial_in_block, trial in enumerate(burnin_block, start=1):
@@ -404,7 +463,7 @@ def build_session_trials(
             trial_in_session += 1
 
     for block_number in range(1, N_BLOCKS + 1):
-        block_trials = _make_block(rng, session_phase, burn_in_block=0)
+        block_trials = _make_block(rng, session_phase, session_number, burn_in_block=0)
         for trial_in_block, trial in enumerate(block_trials, start=1):
             trial = dict(trial)
             trial.update(
@@ -444,7 +503,7 @@ def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list
         session_phase = "focal_pm" if pm_kind == "focal" else "nonfocal_pm"
         block_trials = []
         for cue_index, _cue_condition in enumerate(CUE_CONDITIONS):
-            pool = CUE_POOLS[cue_index]
+            pool = _pool_for_cue_condition(_cue_condition, center=False)
             stub = {
                 "session_phase": session_phase,
                 "is_pm_trial": True,
@@ -453,7 +512,7 @@ def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list
                 "warm_up": 0,
                 "burn_in_block": 0,
             }
-            _apply_variant_to_stub(stub, rng.choice(pool))
+            _apply_variant_to_stub(stub, rng.choice(pool), single_center=False)
             block_trials.append(stub)
         rng.shuffle(block_trials)
         for trial_in_block, trial in enumerate(block_trials, start=1):
@@ -515,8 +574,8 @@ SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = INCLUDE_BURNIN_BLOCK  # hook for future session/day rules
 
-if DEBUG_CONFIG["enabled"]:
-    # Short PM test session: trials 1-6 focal PM, 7-12 nonfocal PM (one per cue condition).
+if DEBUG_CONFIG["enabled"] and SESSION != 1:
+    # PM smoke test (sessions 2+ only). Session 1 always uses center single-cue training.
     SESSION_PHASE = "focal_pm"
     trials = build_debug_pm_test_trials(PARTICIPANT, SESSION)
 else:
@@ -637,7 +696,9 @@ block_break_text = visual.TextStim(
     units=USE_UNITS,
 )
 
-keymap_positions = _njk_keymap_positions()
+keymap_positions = _njk_keymap_positions(
+    single_center=DISPLAY_CONFIG.get("single_center", False)
+)
 key_to_color = {key: color for color, key in COLOR_KEYS.items()}
 keymap_stims = []
 for key in ["n", "j", "k"]:
@@ -846,10 +907,19 @@ for trial in trials:
 
     event.clearEvents()
 
-    for i, position_name in enumerate(POSITION_NAMES):
-        pos = POSITIONS[position_name]
-        normal_color = trial_colors[i]
-        reward_value = trial["reward_values"][i]
+    single_center = trial.get("single_center")
+    if single_center is None:
+        single_center = DISPLAY_CONFIG.get("single_center", False)
+    if single_center:
+        cue_slots = [(CENTER_POSITION_NAME, CENTER_POSITION, 0)]
+    else:
+        cue_slots = [
+            (name, POSITIONS[name], i) for i, name in enumerate(POSITION_NAMES)
+        ]
+
+    for position_name, pos, color_index in cue_slots:
+        normal_color = trial_colors[color_index]
+        reward_value = trial["reward_values"][color_index]
         is_focal_pm_target = (
             trial["is_pm_trial"]
             and trial["pm_trial_kind"] == "focal"
@@ -963,8 +1033,15 @@ for trial in trials:
             actual_reward = PM_REWARD
         elif pressed_key in key_to_color:
             selected_color = key_to_color[pressed_key]
-            selected_position_index = trial_colors.index(selected_color)
-            actual_reward = trial["reward_values"][selected_position_index]
+            if single_center:
+                actual_reward = (
+                    trial["reward_values"][0]
+                    if selected_color == trial_colors[0]
+                    else 0
+                )
+            else:
+                selected_position_index = trial_colors.index(selected_color)
+                actual_reward = trial["reward_values"][selected_position_index]
         else:
             actual_reward = 0
     else:
@@ -973,8 +1050,15 @@ for trial in trials:
             actual_reward = 0
         elif pressed_key in key_to_color:
             selected_color = key_to_color[pressed_key]
-            selected_position_index = trial_colors.index(selected_color)
-            actual_reward = trial["reward_values"][selected_position_index]
+            if single_center:
+                actual_reward = (
+                    trial["reward_values"][0]
+                    if selected_color == trial_colors[0]
+                    else 0
+                )
+            else:
+                selected_position_index = trial_colors.index(selected_color)
+                actual_reward = trial["reward_values"][selected_position_index]
         else:
             actual_reward = 0
 
