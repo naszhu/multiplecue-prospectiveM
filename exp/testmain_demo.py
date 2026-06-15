@@ -85,6 +85,11 @@ DEFAULT_DISPLAY = {
 }
 SESSION_DISPLAY_OVERRIDES = {}
 
+# Debug: set enabled=True for a 12-trial PM smoke session (6 focal + 6 nonfocal, one per cue).
+DEBUG_CONFIG = {
+    "enabled": True,
+}
+
 UNITS = "deg"
 BASE_STIM_FACTOR = 0.04
 STIM_SCALE = 1.55
@@ -389,6 +394,49 @@ def build_session_trials(
     return trials
 
 
+def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list:
+    """
+    Debug PM smoke session: 12 trials, all pre-assigned at build time.
+
+    Trials 1-6 (block 1): focal PM, one per cue condition — order shuffled within block.
+    Trials 7-12 (block 2): nonfocal PM, one per cue condition — order shuffled within block.
+
+    Each trial draws a random reward-position/color variant from its cue pool and a random
+    pm_position, so every cue condition and both PM kinds can be tested quickly.
+    """
+    rng = random.Random(f"debug-pm-{participant_id}-{session_number}")
+    trials = []
+    trial_in_session = 0
+
+    for block_number, pm_kind in ((1, "focal"), (2, "nonfocal")):
+        session_phase = "focal_pm" if pm_kind == "focal" else "nonfocal_pm"
+        block_trials = []
+        for cue_index, _cue_condition in enumerate(CUE_CONDITIONS):
+            pool = CUE_POOLS[cue_index]
+            stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": True,
+                "pm_trial_kind": pm_kind,
+                "pm_position": rng.choice(POSITION_NAMES),
+                "warm_up": 0,
+                "burn_in_block": 0,
+            }
+            _apply_variant_to_stub(stub, rng.choice(pool))
+            block_trials.append(stub)
+        rng.shuffle(block_trials)
+        for trial_in_block, trial in enumerate(block_trials, start=1):
+            trial_in_session += 1
+            trials.append(
+                {
+                    **trial,
+                    "block": block_number,
+                    "trial_in_block": trial_in_block,
+                    "trial_in_session": trial_in_session,
+                }
+            )
+    return trials
+
+
 def _load_instruction(filename: str, **fmt) -> str:
     path = INSTRUCTION_DIR / filename
     if not path.exists():
@@ -435,13 +483,22 @@ SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = INCLUDE_BURNIN_BLOCK  # hook for future session/day rules
 
-trials = build_session_trials(
-    SESSION_PHASE,
-    SESSION,
-    PARTICIPANT,
-    include_burnin_block=INCLUDE_BURNIN,
-)
+if DEBUG_CONFIG["enabled"]:
+    # Short PM test session: trials 1-6 focal PM, 7-12 nonfocal PM (one per cue condition).
+    SESSION_PHASE = "focal_pm"
+    trials = build_debug_pm_test_trials(PARTICIPANT, SESSION)
+else:
+    trials = build_session_trials(
+        SESSION_PHASE,
+        SESSION,
+        PARTICIPANT,
+        include_burnin_block=INCLUDE_BURNIN,
+    )
 N_TRIALS = len(trials)
+SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else N_BLOCKS
+_block_trial_counts = {}
+for _t in trials:
+    _block_trial_counts[_t["block"]] = _t["trial_in_block"]
 
 # print(json.dumps(trials, indent=2))  # full pre-designed session structure
 
@@ -695,7 +752,7 @@ def _show_instruction_text(text: str):
 def _trials_in_block(block_number):
     if block_number == BURNIN_BLOCK_NUMBER:
         return BURNIN_TRIALS_PER_BLOCK
-    return TRIALS_PER_BLOCK
+    return _block_trial_counts.get(block_number, TRIALS_PER_BLOCK)
 
 
 def _set_feedback4_text(trial):
@@ -715,7 +772,7 @@ def _set_feedback4_text(trial):
         "Block  "
         + str(current_block)
         + " / "
-        + str(N_BLOCKS)
+        + str(SESSION_N_BLOCKS)
         + "     Trial  "
         + str(trial_in_block)
         + " / "
@@ -753,7 +810,7 @@ for trial in trials:
                     "instruction block break.txt",
                     prev_block=prev_block,
                     next_block=current_block,
-                    n_blocks=N_BLOCKS,
+                    n_blocks=SESSION_N_BLOCKS,
                 )
             )
             block_break_text.draw()
