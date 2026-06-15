@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import csv
 import math
+import time
 from pathlib import Path
 
 from psychopy import visual, core, event, monitors, gui
+
+try:
+    import serial
+    from serial.tools import list_ports
+except ImportError:
+    serial = None
+    list_ports = None
 
 from trial_schedule import (
     N_BLOCKS_PER_SESSION,
@@ -99,6 +107,34 @@ KEY_TO_COLOR = {v: k for k, v in COLOR_KEYS.items()}
 PM_KEY = "d"
 START_KEY = "space"
 QUIT_KEY = "escape"
+
+RESPONSE_DEVICE_KEYBOARD = "keyboard"
+RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
+DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
+CEDRUS_VID = 0x0403
+CEDRUS_PID = 0x6001
+SERIAL_BAUDRATE = 115200
+
+# Self-made box pins (same serial protocol as multiplecue-responsebox/exp/testmain.py).
+# CCRP instruction ses 1 self-made-response-box.txt:
+#   C0=left middle=pin 6, C1=left index=pin 7, C2=right middle=pin 9, C3=right index=pin 8
+# PM uses left middle (pin 6). Ongoing colors use right hand only (index/middle/ring).
+SELF_MADE_PM_PIN = "6"
+SELF_MADE_COLOR_PINS = {
+    "red": "8",    # right index (keyboard N)
+    "blue": "9",   # right middle (keyboard J)
+    "green": "10", # right ring (keyboard K)
+}
+
+
+def _build_self_made_pin_to_logical_key() -> dict[str, str]:
+    pin_map = {pin: key for color, pin in SELF_MADE_COLOR_PINS.items() for key in [COLOR_KEYS[color]]}
+    pin_map[SELF_MADE_PM_PIN] = PM_KEY
+    return pin_map
+
+
+SELF_MADE_PIN_TO_LOGICAL_KEY = _build_self_made_pin_to_logical_key()
+
 ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 PM_REWARD = 5
 
@@ -116,6 +152,64 @@ RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR
 COLOR_MAP_Y_DEG = -150 * STIM_FACTOR
 COLOR_MAP_LAYOUT = "keyboard"  # "horizontal" or "keyboard" (responsebox options)
 COLOR_KEY_ORDER = ["n", "j", "k"]
+COLOR_DISPLAY_ORDER = ["red", "blue", "green"]
+
+
+def _logical_key_from_response(pressed) -> str | None:
+    """Normalize keyboard key or self-made pin to logical key (n/j/k/d) or escape."""
+    if pressed is None:
+        return None
+    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
+        if pressed == QUIT_KEY:
+            return QUIT_KEY
+        return SELF_MADE_PIN_TO_LOGICAL_KEY.get(str(pressed))
+    return pressed
+
+
+def _find_self_made_response_box_port() -> str:
+    if list_ports is not None:
+        for port in list_ports.comports():
+            if port.vid == CEDRUS_VID and port.pid == CEDRUS_PID:
+                continue
+            if port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
+                return port.device
+    return "/dev/ttyACM0"
+
+
+def _open_self_made_response_box():
+    if serial is None:
+        raise SystemExit("pyserial is required for self-made-response-box.")
+
+    port_name = _find_self_made_response_box_port()
+    box = serial.Serial(port_name, baudrate=SERIAL_BAUDRATE, timeout=0.001)
+    time.sleep(2.0)
+    box.reset_input_buffer()
+    print(f"Using {RESPONSE_DEVICE_SELF_MADE} on {port_name}.")
+    return box
+
+
+def _wait_for_self_made_response_box(box, clock, max_wait):
+    buffer = ""
+    start = clock.getTime()
+
+    while clock.getTime() - start < max_wait:
+        escape_keys = event.getKeys(keyList=[QUIT_KEY], timeStamped=clock)
+        if escape_keys:
+            return (QUIT_KEY, escape_keys[0][1], None)
+
+        buffer += box.read(box.in_waiting or 1).decode("ascii", errors="ignore")
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            parts = line.strip().split(",")
+            if len(parts) != 2:
+                continue
+
+            pin, latency_us = parts
+            if pin in SELF_MADE_PIN_TO_LOGICAL_KEY:
+                return (pin, clock.getTime(), float(latency_us) / 1000)
+
+    return None
 
 
 def _color_map_positions(layout: str, n_slots: int) -> list[tuple[float, float]]:
@@ -146,8 +240,9 @@ CODE_VERSION = "1.0.0"
 
 # Debug: run only first N trials, all forced to PM (role follows session phase assignment).
 DEBUG_CONFIG = {
-    "enabled": False,
+    "enabled": True,
     "n_trials": 10,
+    "simulate_response_box": True,
 }
 
 
@@ -197,6 +292,11 @@ session_dlg.addField(
     initial="no" if not DEBUG_CONFIG["enabled"] else "yes",
     choices=["no", "yes"],
 )
+session_dlg.addField(
+    "Response device",
+    initial=DEFAULT_RESPONSE_DEVICE,
+    choices=[RESPONSE_DEVICE_KEYBOARD, RESPONSE_DEVICE_SELF_MADE],
+)
 dlg_data = session_dlg.show()
 if not session_dlg.OK:
     core.quit()
@@ -206,6 +306,7 @@ SESSION = int(dlg_data[1])
 FIRST_SESSION_OF_DAY = dlg_data[2] == "yes"
 PARTICIPATION_DAY = int(dlg_data[3])
 DEBUG_MODE = dlg_data[4] == "yes" or DEBUG_CONFIG["enabled"]
+RESPONSE_DEVICE = dlg_data[5]
 
 if not 1 <= SESSION <= TOTAL_SESSIONS:
     raise SystemExit(f"Session must be 1..{TOTAL_SESSIONS}")
@@ -286,30 +387,45 @@ feedback4 = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR, colorSpace=COLOR_SPACE, units=UNITS, opacity=STIMULUS_OPACITY,
 )
 
-# Keymap (NJK) — positions from responsebox color-map algorithm
-color_map_positions = _color_map_positions(COLOR_MAP_LAYOUT, len(COLOR_KEY_ORDER))
+# Color-response legend (keyboard NJK labels or self-made right-hand color squares)
+color_map_layout = "horizontal" if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE else COLOR_MAP_LAYOUT
+color_map_positions = _color_map_positions(color_map_layout, len(COLOR_DISPLAY_ORDER))
 keymap_stims = []
-for key, pos in zip(COLOR_KEY_ORDER, color_map_positions):
-    square = visual.Rect(
-        win,
-        width=RESPONSE_COLOR_SIZE_DEG,
-        height=RESPONSE_COLOR_SIZE_DEG,
-        pos=pos,
-        fillColor=COLORS[KEY_TO_COLOR[key]],
-        fillColorSpace=COLOR_SPACE,
-        lineColor=None,
-        units=UNITS,
-    )
-    label = visual.TextStim(
-        win,
-        text=key.upper(),
-        pos=pos,
-        height=CUE_TEXT_HEIGHT_DEG,
-        color=COLORS["white"],
-        colorSpace=COLOR_SPACE,
-        units=UNITS,
-    )
-    keymap_stims.append((square, label))
+if RESPONSE_DEVICE == RESPONSE_DEVICE_KEYBOARD:
+    for key, pos in zip(COLOR_KEY_ORDER, color_map_positions):
+        square = visual.Rect(
+            win,
+            width=RESPONSE_COLOR_SIZE_DEG,
+            height=RESPONSE_COLOR_SIZE_DEG,
+            pos=pos,
+            fillColor=COLORS[KEY_TO_COLOR[key]],
+            fillColorSpace=COLOR_SPACE,
+            lineColor=None,
+            units=UNITS,
+        )
+        label = visual.TextStim(
+            win,
+            text=key.upper(),
+            pos=pos,
+            height=CUE_TEXT_HEIGHT_DEG,
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            units=UNITS,
+        )
+        keymap_stims.append((square, label))
+else:
+    for color_name, pos in zip(COLOR_DISPLAY_ORDER, color_map_positions):
+        square = visual.Rect(
+            win,
+            width=RESPONSE_COLOR_SIZE_DEG,
+            height=RESPONSE_COLOR_SIZE_DEG,
+            pos=pos,
+            fillColor=COLORS[color_name],
+            fillColorSpace=COLOR_SPACE,
+            lineColor=None,
+            units=UNITS,
+        )
+        keymap_stims.append((square, None))
 
 
 def draw_focal_pm_marker(pos):
@@ -413,7 +529,8 @@ def _draw_trial_stimulus(trial: TrialPlan):
     if DISPLAY_PROFILE.show_color_map:
         for square, label in keymap_stims:
             square.draw()
-            label.draw()
+            if label is not None:
+                label.draw()
 
 
 def _score_trial(trial: TrialPlan, pressed_key, timed_out: bool):
@@ -466,6 +583,14 @@ elif is_first_session_of_pm_phase(SESSION) and PHASE_CONFIG.session_phase == "no
 if should_include_burnin_block(SESSION, FIRST_SESSION_OF_DAY, PARTICIPATION_DAY):
     pass  # hook for future burn-in block
 
+serial_response_box = None
+if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not (
+    DEBUG_MODE and DEBUG_CONFIG.get("simulate_response_box", True)
+):
+    serial_response_box = _open_self_made_response_box()
+elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
+    print("DEBUG MODE: self-made response box not opened (simulate_response_box).")
+
 cum_reward = 0.0
 prev_block = None
 completed_normally = True
@@ -490,16 +615,36 @@ for trial in trial_data_list:
     event.clearEvents()
     _draw_trial_stimulus(trial)
     clock = core.Clock()
+    if serial_response_box is not None:
+        serial_response_box.reset_input_buffer()
     win.flip()
     clock.reset()
-    keys = event.waitKeys(keyList=ALL_RESPONSE_KEYS, maxWait=MAX_RESPONSE_TIME, timeStamped=clock)
+    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+        serial_response_box.write(b"S")
+        serial_response_box.flush()
+        box_response = _wait_for_self_made_response_box(
+            serial_response_box, clock, MAX_RESPONSE_TIME
+        )
+        keys = [box_response] if box_response else None
+    else:
+        keys = event.waitKeys(
+            keyList=ALL_RESPONSE_KEYS, maxWait=MAX_RESPONSE_TIME, timeStamped=clock
+        )
 
     timed_out = keys is None
+    pressed_raw = None
     pressed_key = None
     rt_ms = None
+    rt_device_ms = None
+    rt_computer_ms = None
     if not timed_out:
-        pressed_key, rt_seconds = keys[0]
-        rt_ms = rt_seconds * 1000
+        pressed_raw = keys[0][0]
+        response_time = keys[0][1]
+        rt_computer_ms = response_time * 1000
+        if len(keys[0]) > 2 and keys[0][2] is not None:
+            rt_device_ms = keys[0][2]
+        rt_ms = rt_device_ms if rt_device_ms is not None else rt_computer_ms
+        pressed_key = _logical_key_from_response(pressed_raw)
 
     if pressed_key == QUIT_KEY:
         if _confirm_exit_or_continue():
@@ -540,8 +685,12 @@ for trial in trial_data_list:
         "Session": SESSION,
         "SessionPhase": PHASE_CONFIG.session_phase,
         "DebugMode": int(DEBUG_MODE),
+        "ResponseDevice": RESPONSE_DEVICE,
+        "PressedRaw": pressed_raw or "",
         "PressedKey": pressed_key or "",
         "RT_ms": rt_ms,
+        "RTComputer_ms": rt_computer_ms if rt_computer_ms is not None else "",
+        "RTDevice_ms": rt_device_ms if rt_device_ms is not None else "",
         "ActualReward": actual_reward,
         "MaxReward": max_reward,
         "CumReward": cum_reward,
@@ -561,6 +710,9 @@ if completed_normally:
     instruction_stim.draw()
     win.flip()
     event.waitKeys()
+
+if serial_response_box is not None:
+    serial_response_box.close()
 
 win.close()
 core.quit()
