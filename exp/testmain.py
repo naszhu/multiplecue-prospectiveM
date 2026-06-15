@@ -31,6 +31,7 @@ from trial_schedule import (
     block_sizes_for_session,
     build_session_schedule,
     display_profile_for_session,
+    get_pm_phase_order,
     print_trial_schedule,
     resolve_session_phase,
     should_include_burnin_block,
@@ -74,11 +75,11 @@ MONITOR_NAME = "pm_ccrp_monitor"
 MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
 
-BORDER_LINE_WIDTH = 4
-DASHED_OUTLINE_LINE_WIDTH = 5
+BORDER_LINE_WIDTH = 2.5
+DASHED_OUTLINE_LINE_WIDTH = 2.5
 
 FOCAL_PM_RING_RADIUS = (CUE_OUTER_RADIUS_DEG + CUE_INNER_RADIUS_DEG) / 2
-FOCAL_PM_RING_LINE_WIDTH = 5
+FOCAL_PM_RING_LINE_WIDTH = 2.5
 FOCAL_PM_STYLE = "center_ring"
 
 # 3-position triangle: paradigm coefficients * StimFactor (not scaled separately)
@@ -312,6 +313,13 @@ if not 1 <= SESSION <= TOTAL_SESSIONS:
     raise SystemExit(f"Session must be 1..{TOTAL_SESSIONS}")
 
 PHASE_CONFIG = resolve_session_phase(SESSION, PARTICIPANT_ID)
+PM_PHASE_ORDER = get_pm_phase_order(PARTICIPANT_ID)
+PARTICIPANT_PARITY = "odd" if PARTICIPANT_ID % 2 == 1 else "even"
+print(
+    f"Participant {PARTICIPANT_ID} ({PARTICIPANT_PARITY}): "
+    f"PM order = {PM_PHASE_ORDER[0]} → {PM_PHASE_ORDER[1]}"
+)
+print(f"Session {SESSION}: running phase = {PHASE_CONFIG.session_phase}")
 DISPLAY_PROFILE = display_profile_for_session(SESSION)
 SCHEDULE_RNG_SEED = PARTICIPANT_ID * 1000 + SESSION
 _schedule_rng = __import__("random").Random(SCHEDULE_RNG_SEED)
@@ -682,6 +690,9 @@ for trial in trial_data_list:
         "ExperimentName": EXPERIMENT_NAME,
         "CodeVersion": CODE_VERSION,
         "Participant": PARTICIPANT_ID,
+        "ParticipantParity": PARTICIPANT_PARITY,
+        "PmPhaseOrderFirst": PM_PHASE_ORDER[0],
+        "PmPhaseOrderSecond": PM_PHASE_ORDER[1],
         "Session": SESSION,
         "SessionPhase": PHASE_CONFIG.session_phase,
         "DebugMode": int(DEBUG_MODE),
