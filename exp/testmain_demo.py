@@ -284,6 +284,47 @@ def _tk_yes_no(title: str, message: str) -> bool:
     return bool(answer)
 
 
+def _tk_ask_string(title: str, message: str) -> str | None:
+    """Text prompt via tkinter (avoids PsychoPy wx second-dialog crash)."""
+    import tkinter as tk
+    from tkinter import simpledialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    value = simpledialog.askstring(title, message, parent=root)
+    root.destroy()
+    return value
+
+
+def _participant_data_dir(participant: str) -> Path:
+    return DATA_OUT_DIR / f"subj{participant}"
+
+
+def _max_completed_session(participant: str, out_dir: Path) -> int | None:
+    """Highest session number found for this participant, or None."""
+    prefix = f"PMCP_subj{participant}_ses"
+    max_session = None
+    if not out_dir.is_dir():
+        return None
+    for path in out_dir.iterdir():
+        if not path.is_file() or not path.name.startswith(prefix):
+            continue
+        match = re.match(r"^(\d+)", path.name[len(prefix):])
+        if match:
+            session_num = int(match.group(1))
+            max_session = session_num if max_session is None else max(max_session, session_num)
+    return max_session
+
+
+def _suggested_next_session(participant: str, out_dir: Path) -> int:
+    max_session = _max_completed_session(participant, out_dir)
+    return 1 if max_session is None else max_session + 1
+
+
 def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
     expected = _suggested_next_session(participant, out_dir)
     if session == expected:
@@ -296,6 +337,47 @@ def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -
         ),
     ):
         raise SystemExit("Session confirmation cancelled.")
+
+
+def _resolve_data_output_paths(
+    participant: str, session: int, out_dir: Path
+) -> tuple[Path, Path, str, str, str]:
+    """Return trials path, metadata path, file stem, repeat note, repeat reason (empty if not repeat)."""
+    base_stem = f"PMCP_subj{participant}_ses{session}"
+    trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
+    metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
+
+    if not trials_path.exists() and not metadata_path.exists():
+        return trials_path, metadata_path, base_stem, "", ""
+
+    if not _tk_yes_no(
+        "Repeated data",
+        (
+            f"Data already exists for participant {participant}, session {session}.\n\n"
+            f"This will be saved as a repeated run (e.g. {base_stem}(2)). Continue?"
+        ),
+    ):
+        raise SystemExit("Repeat run cancelled.")
+
+    reason = _tk_ask_string(
+        "Repeated data reason",
+        "Enter a reason for this repeated run:",
+    )
+    if reason is None:
+        raise SystemExit("Repeat run cancelled.")
+    reason = reason.strip()
+    if not reason:
+        raise SystemExit("A reason is required to save repeated participant data.")
+
+    suffix_n = 2
+    while True:
+        stem = f"{base_stem}({suffix_n})"
+        candidate_trials = (out_dir / f"{stem}_trials.csv").resolve()
+        candidate_meta = (out_dir / f"{stem}_metadata.json").resolve()
+        if not candidate_trials.exists() and not candidate_meta.exists():
+            note = f"this is a repeated data, reason is '{reason}'"
+            return candidate_trials, candidate_meta, stem, note, reason
+        suffix_n += 1
 
 
 def _find_self_made_response_box_port() -> str:
@@ -522,84 +604,6 @@ def _self_made_pin_to_color_metadata() -> dict[str, str]:
         else:
             out[pin] = key_to_color[key]
     return out
-
-
-def _tk_ask_string(title: str, message: str) -> str | None:
-    import tkinter as tk
-    from tkinter import simpledialog
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        root.attributes("-topmost", True)
-    except tk.TclError:
-        pass
-    value = simpledialog.askstring(title, message, parent=root)
-    root.destroy()
-    return value
-
-
-def _participant_data_dir(participant: str) -> Path:
-    return DATA_OUT_DIR / f"subj{participant}"
-
-
-def _resolve_data_output_paths(
-    participant: str, session: int, out_dir: Path
-) -> tuple[Path, Path, str, str, str]:
-    """Return trials path, metadata path, file stem, repeat note, repeat reason."""
-    base_stem = f"PMCP_subj{participant}_ses{session}"
-    trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
-    metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
-
-    if participant == "test":
-        return trials_path, metadata_path, base_stem, "", ""
-
-    if not trials_path.exists() and not metadata_path.exists():
-        return trials_path, metadata_path, base_stem, "", ""
-
-    reason = _tk_ask_string(
-        "Participant data already exists",
-        (
-            f"Data already exists for participant {participant}, session {session}.\n\n"
-            "To continue anyway, enter a reason:"
-        ),
-    )
-    if reason is None:
-        raise SystemExit("Repeat run cancelled.")
-    reason = reason.strip()
-    if not reason:
-        raise SystemExit("A reason is required to overwrite existing participant data.")
-
-    suffix_n = 2
-    while True:
-        stem = f"{base_stem}({suffix_n})"
-        candidate_trials = (out_dir / f"{stem}_trials.csv").resolve()
-        candidate_meta = (out_dir / f"{stem}_metadata.json").resolve()
-        if not candidate_trials.exists() and not candidate_meta.exists():
-            note = f"this is a repeated data, reason is '{reason}'"
-            return candidate_trials, candidate_meta, stem, note, reason
-        suffix_n += 1
-
-
-def _max_completed_session(participant: str, out_dir: Path) -> int | None:
-    """Highest session number found for this participant, or None."""
-    prefix = f"PMCP_subj{participant}_ses"
-    max_session = None
-    if not out_dir.is_dir():
-        return None
-    for path in out_dir.iterdir():
-        if not path.is_file() or not path.name.startswith(prefix):
-            continue
-        match = re.match(r"^(\d+)", path.name[len(prefix):])
-        if match:
-            session_num = int(match.group(1))
-            max_session = session_num if max_session is None else max(max_session, session_num)
-    return max_session
-
-
-def _suggested_next_session(participant: str, out_dir: Path) -> int:
-    max_session = _max_completed_session(participant, out_dir)
-    return 1 if max_session is None else max_session + 1
 
 
 def _trial_design_maps(trial: dict) -> tuple[dict, dict]:
@@ -1549,6 +1553,8 @@ COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
 )
 MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
 
+# Post-dialog checks (order matters):
+# 1) unexpected session number, 2) repeated data for same participant+session
 _confirm_unexpected_session(
     PARTICIPANT, SESSION, _participant_data_dir(PARTICIPANT)
 )
