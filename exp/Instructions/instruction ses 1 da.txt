@@ -8,6 +8,8 @@ __________
 
 Din opgave er at angive cirkelens farve ved at trykke på en af tre taster: N, J og K.
 
+Placer din højre hånd naturligt på tastaturet, med pegefingeren på N, langfingeren på J og ringfingeren på K.
+
 Tasterne er knyttet til tre farver: Rød (N), Blå (J) og Grøn (K). Denne farve-tast-tilknytning forbliver den samme gennem hele eksperimentet. Tilknytningen vises også ved de farvede firkanter under cirklen.
 
 __________
