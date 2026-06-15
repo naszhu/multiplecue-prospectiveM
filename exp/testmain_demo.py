@@ -32,8 +32,10 @@ COLOR_SPACE = "rgb255"
 N_TRIALS = 10
 FIXATION_TIME = 0.5
 MAX_RESPONSE_TIME = 3.0
-FEEDBACK_TIME = 0.7
+FEEDBACK_WAIT_TIME = 1.5
 ITI_TIME = 0.3
+REWARD_MONEY_FACTOR = 0.05
+STIMULUS_OPACITY = 1.0
 
 # Use the same "deg + StimFactor-like" sizing style as the example file.
 UNITS = "deg"
@@ -101,6 +103,15 @@ QUIT_KEY = "escape"
 ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
 PM_REWARD = 5
+
+# Feedback (match multiplecue-responsebox/exp/testmain.py: Feedback1-4 layout)
+FEEDBACK_LETTER_SIZE_DEG = 50 * STIM_FACTOR
+FEEDBACK1_POS_DEG = (0, 70 * STIM_FACTOR)
+FEEDBACK2_POS_DEG = (0, -70 * STIM_FACTOR)
+FEEDBACK3_POS_DEG = (0, -140 * STIM_FACTOR)
+FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
+FEEDBACK_TEXT_COLOR = COLORS["white"]
+TOO_SLOW_TEXT = "TOO SLOW!"
 
 # Color-key mapping legend (NJK keyboard-style arrangement).
 # These are directly aligned with the example file style.
@@ -208,12 +219,52 @@ instructions = visual.TextStim(
     wrapWidth=24,
 )
 
-feedback = visual.TextStim(
+feedback1 = visual.TextStim(
     win,
     text="",
-    color=COLORS["white"],
+    pos=FEEDBACK1_POS_DEG,
+    height=FEEDBACK_LETTER_SIZE_DEG,
+    color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
-    height=0.7,
+    units=UNITS,
+    opacity=STIMULUS_OPACITY,
+)
+feedback2 = visual.TextStim(
+    win,
+    text="",
+    pos=FEEDBACK2_POS_DEG,
+    height=FEEDBACK_LETTER_SIZE_DEG * 0.6,
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    units=UNITS,
+    opacity=STIMULUS_OPACITY,
+)
+feedback3 = visual.TextStim(
+    win,
+    text="",
+    pos=FEEDBACK3_POS_DEG,
+    height=FEEDBACK_LETTER_SIZE_DEG * 0.6,
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    units=UNITS,
+    opacity=STIMULUS_OPACITY,
+)
+feedback4 = visual.TextStim(
+    win,
+    text="",
+    pos=FEEDBACK4_POS_DEG,
+    height=FEEDBACK_LETTER_SIZE_DEG * 0.2,
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    units=UNITS,
+    opacity=STIMULUS_OPACITY,
+)
+end_text = visual.TextStim(
+    win,
+    text="End of session!\n\n\nContact the Experimenter",
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    height=0.6,
 )
 
 # -------------------------------------------------------------------------
@@ -353,7 +404,7 @@ instructions.draw()
 win.flip()
 event.waitKeys(keyList=[START_KEY])
 
-total_points = 0
+cum_reward = 0.0
 position_names = list(POSITIONS.keys())
 color_names = list(COLOR_KEYS.keys())
 
@@ -466,53 +517,70 @@ for trial_number, trial in enumerate(trials, start=1):
     # -------------------------------------------------------------------------
     # RESPONSE SCORING
     # -------------------------------------------------------------------------
-    if keys is None:
-        pressed_key = None
-        rt = None
+    max_reward_ccrp = max(trial["reward_values"]) if trial["reward_values"] else 0
+    is_pm_trial = trial["pm_type"] is not None
+    actual_reward = 0
+    pressed_key = None
+    rt = None
+    timed_out = keys is None
+
+    if timed_out:
+        rt = MAX_RESPONSE_TIME * 1000
     else:
-        pressed_key, rt = keys[0]
+        pressed_key, rt_seconds = keys[0]
+        rt = rt_seconds * 1000
 
     if pressed_key == QUIT_KEY:
         break
 
-    is_pm_trial = trial["pm_type"] is not None
-    correct_pm_response = is_pm_trial and pressed_key == PM_KEY
-    false_alarm = (not is_pm_trial) and pressed_key == PM_KEY
-
-    if correct_pm_response:
-        points = PM_REWARD
-        feedback.text = f"PM CUE CAUGHT! +{points} points"
-    elif is_pm_trial and pressed_key != PM_KEY:
-        points = 0
-        feedback.text = "MISSED PM CUE"
-    elif false_alarm:
-        points = 0
-        feedback.text = "No PM cue present"
-    elif pressed_key is None:
-        points = 0
-        feedback.text = "TOO SLOW"
-    else:
-        best_reward = max(trial["reward_values"])
-        best_position_index = trial["reward_values"].index(best_reward)
-        best_color = trial_colors[best_position_index]
-        correct_key = COLOR_KEYS[best_color]
-
-        if pressed_key == correct_key:
-            points = best_reward
-            feedback.text = f"+{points} points"
+    if timed_out:
+        max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
+        actual_reward = 0
+    elif is_pm_trial:
+        max_reward = PM_REWARD
+        if pressed_key == PM_KEY:
+            actual_reward = PM_REWARD
+        elif pressed_key in key_to_color:
+            selected_color = key_to_color[pressed_key]
+            selected_position_index = trial_colors.index(selected_color)
+            actual_reward = trial["reward_values"][selected_position_index]
         else:
-            points = 0
-            feedback.text = f"Wrong key. Correct key was {correct_key.upper()}"
+            actual_reward = 0
+    else:
+        max_reward = max_reward_ccrp
+        if pressed_key == PM_KEY:
+            actual_reward = 0
+        elif pressed_key in key_to_color:
+            selected_color = key_to_color[pressed_key]
+            selected_position_index = trial_colors.index(selected_color)
+            actual_reward = trial["reward_values"][selected_position_index]
+        else:
+            actual_reward = 0
 
-    total_points += points
-    feedback.text += f"\nTotal points: {total_points}\nTrial {trial_number} / {N_TRIALS}"
+    cum_reward += actual_reward * REWARD_MONEY_FACTOR
+    cum_reward = round(cum_reward, 2)
 
     # -------------------------------------------------------------------------
-    # FEEDBACK AND ITI
+    # FEEDBACK SCREEN (match multiplecue-responsebox/exp/testmain.py)
     # -------------------------------------------------------------------------
-    feedback.draw()
+    if timed_out:
+        feedback1.setText(TOO_SLOW_TEXT)
+        feedback1.bold = True
+    else:
+        feedback1.setText(str(actual_reward) + " / " + str(max_reward))
+        feedback1.bold = False
+    feedback1.setColor(FEEDBACK_TEXT_COLOR)
+    feedback2.setText("%.2f DKK" % cum_reward)
+    feedback3.setText(("%5.0f" % rt + " ms") if rt is not None else "")
+    feedback4.setText("Trial  " + str(trial_number) + " / " + str(N_TRIALS))
+
+    feedback1.draw()
+    feedback2.draw()
+    feedback3.draw()
+    feedback4.draw()
+    fixation.draw()
     win.flip()
-    core.wait(FEEDBACK_TIME)
+    core.wait(FEEDBACK_WAIT_TIME)
 
     win.flip()
     core.wait(ITI_TIME)
@@ -522,8 +590,7 @@ for trial_number, trial in enumerate(trials, start=1):
 # END
 # =============================================================================
 
-feedback.text = f"End of experiment.\n\nTotal points: {total_points}\n\nPress any key to close."
-feedback.draw()
+end_text.draw()
 win.flip()
 event.waitKeys()
 
