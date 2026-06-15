@@ -1,0 +1,25 @@
+ØVELSE 1
+
+I det følgende vil du se et fixationskors i midten af skærmen. Fixér altid dette punkt, når du starter en forsøgsrunde.
+
+Når du trykker på *space*, vil en farvet cirkel med et tal fra 1 til 3 dukke op i midten af skærmen.
+
+__________
+
+Din opgave er at angive cirkelens farve ved at trykke på en af tre taster: N, J og K.
+
+Tasterne er knyttet til tre farver: Rød (N), Blå (J) og Grøn (K). Denne farve-tast-tilknytning forbliver den samme gennem hele eksperimentet. Tilknytningen vises også ved de farvede firkanter under cirklen.
+
+__________
+
+Du optjener point ved korrekt at angive cirkelens farve og ved at reagere så hurtigt som muligt.
+
+Tallet 1 giver 1 point, og så videre op til maksimalt 3 point pr. forsøgsrunde.
+
+Dine point omsættes til en pengebelønning (0,05 DKK pr. point). Efter hver forsøgsrunde ser du, hvor mange point du har optjent i den pågældende runde i forhold til det mulige, sammen med beløbet i DKK.
+
+__________
+
+Husk at fixere korset i midten ved starten af hver forsøgsrunde.
+
+Tryk på *space* for at begynde.

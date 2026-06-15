@@ -1,0 +1,21 @@
+NEW SESSION — AFTER BASELINE
+
+You have now finished the baseline sessions. From this session on, the task is different.
+
+In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
+
+On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see this orange ring, press D instead of the color key. Responding correctly earns 5 bonus points.
+
+__________
+
+ONGOING TASK (same circle choice as before):
+
+Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward:
+
+  Red = N     Blue = J     Green = K
+
+The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+Press *space* to begin.

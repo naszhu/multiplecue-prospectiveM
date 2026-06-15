@@ -20,6 +20,23 @@ from psychopy import gui, visual, core, event, monitors
 
 EXP_DIR = Path(__file__).resolve().parent
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
+INSTRUCTION_FONT_CJK = (
+    EXP_DIR / "fonts" / "NotoSansSC-Regular.otf"
+    if (EXP_DIR / "fonts" / "NotoSansSC-Regular.otf").exists()
+    else EXP_DIR.parent.parent
+    / "multiplecue-responsebox"
+    / "exp"
+    / "fonts"
+    / "NotoSansSC-Regular.otf"
+)
+INSTRUCTION_FONT_CJK_NAME = "Noto Sans SC"
+INSTRUCTION_LANGUAGE_SUFFIX = {"en": "", "zh": " zh", "da": " da"}
+INSTRUCTION_LANGUAGE_SWITCHER = {
+    "en": "If you want to change to 中文 press c; for dansk press d.\n\n",
+    "zh": "如需切换为英文请按 e，如需切换为丹麦语（dansk）请按 d。\n\n",
+    "da": "Hvis du vil skifte til 中文, tryk c; for engelsk tryk e.\n\n",
+}
+SESSION1_INSTRUCTION_LANGUAGE = "en"
 
 # Keep the normal window ratio, but allow easy scaling for high-res displays.
 BACKGROUND_COLOR = (128, 128, 128)
@@ -62,6 +79,10 @@ OTHER_WARMUP_TRIALS = 0
 INCLUDE_BURNIN_BLOCK = False
 BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
+PM_PRACTICE_BLOCK_NUMBER = -1
+# Session 13 = first PM session; session 20 = first session of second PM phase (5+7=12, +1=13, +7=20).
+FIRST_PM_SESSION = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 1
+FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
 
 # Future per-practice-session trial-count overrides.
@@ -78,9 +99,9 @@ DEFAULT_DISPLAY = {
 }
 SESSION_DISPLAY_OVERRIDES = {}
 
-# Debug PM smoke session (12 trials). Does not apply to session 1 (center single-cue training).
+# Debug: set enabled=True for a 12-trial PM smoke session (6 focal + 6 nonfocal, one per cue).
 DEBUG_CONFIG = {
-    "enabled": False,
+    "enabled": True,
 }
 
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
@@ -243,6 +264,22 @@ def session_phase_for(session: int, participant_id: str) -> str:
     raise ValueError(f"Session {session} is out of range.")
 
 
+def session_needs_pm_practice_block(session: int) -> bool:
+    """One PM practice block at session 13 (baseline→PM A) and session 20 (PM A→PM B)."""
+    return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
+
+
+def pm_practice_kind_for_session(session: int, participant_id: str) -> str:
+    """Return 'focal' or 'nonfocal' for the PM practice block on this session."""
+    phase = session_phase_for(session, participant_id)
+    return "focal" if phase == "focal_pm" else "nonfocal"
+
+
+def _secondary_cue_label(session: int, participant_id: str) -> str:
+    """Participant-facing cue description key: orange_ring or dashed."""
+    return "orange ring" if session_phase_for(session, participant_id) == "focal_pm" else "dashed"
+
+
 def get_session_display_config(session: int) -> dict:
     """Display options for a session; defaults unless overridden."""
     cfg = {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
@@ -388,6 +425,7 @@ def _make_block(
     session_number: int,
     *,
     burn_in_block: int = 0,
+    pm_practice_block: int = 0,
 ) -> list:
     """Build one block: cue-balanced stubs, pool draw per stub, within-block shuffle."""
     gen = get_session_generation_config(session_number)
@@ -413,6 +451,7 @@ def _make_block(
                 "pm_position": rng.choice(pm_positions),
                 "warm_up": 0,
                 "burn_in_block": burn_in_block,
+                "pm_practice_block": pm_practice_block,
             }
             _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(pm_stub)
@@ -425,6 +464,7 @@ def _make_block(
                 "pm_position": None,
                 "warm_up": 0,
                 "burn_in_block": burn_in_block,
+                "pm_practice_block": pm_practice_block,
             }
             _apply_variant_to_stub(ongoing_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(ongoing_stub)
@@ -439,6 +479,7 @@ def build_session_trials(
     participant_id: str,
     *,
     include_burnin_block: bool = False,
+    include_pm_practice_block: bool = False,
 ) -> list:
     """
     Pre-design the full session trial list before the experiment starts.
@@ -462,6 +503,24 @@ def build_session_trials(
             trials.append(trial)
             trial_in_session += 1
 
+    if include_pm_practice_block:
+        practice_block = _make_block(
+            rng,
+            session_phase,
+            session_number,
+            burn_in_block=0,
+            pm_practice_block=1,
+        )
+        for trial_in_block, trial in enumerate(practice_block, start=1):
+            trial = dict(trial)
+            trial.update(
+                block=PM_PRACTICE_BLOCK_NUMBER,
+                trial_in_block=trial_in_block,
+                trial_in_session=trial_in_session + 1,
+            )
+            trials.append(trial)
+            trial_in_session += 1
+
     for block_number in range(1, N_BLOCKS + 1):
         block_trials = _make_block(rng, session_phase, session_number, burn_in_block=0)
         for trial_in_block, trial in enumerate(block_trials, start=1):
@@ -476,6 +535,7 @@ def build_session_trials(
 
     expected = (
         (BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0)
+        + (TRIALS_PER_BLOCK if include_pm_practice_block else 0)
         + N_BLOCKS * TRIALS_PER_BLOCK
     )
     if len(trials) != expected:
@@ -538,11 +598,51 @@ def _load_instruction(filename: str, **fmt) -> str:
     return text
 
 
-def _load_session_welcome_instruction(session: int) -> str:
-    override = SESSION_WELCOME_INSTRUCTION_OVERRIDES.get(session)
-    if override:
-        return _load_instruction(override)
-    return _load_instruction("instruction welcome.txt")
+def _load_session1_instruction(language: str = "en") -> str:
+    """Load session-1 instruction text for the selected language."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    path = INSTRUCTION_DIR / f"instruction ses 1{INSTRUCTION_LANGUAGE_SUFFIX[language]}.txt"
+    if not path.exists():
+        raise SystemExit(f"Instruction file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _load_pm_practice_instruction(session: int, participant_id: str) -> str:
+    """Instruction at session start when a practice block precedes the main session."""
+    cue = _secondary_cue_label(session, participant_id)
+    if session == FIRST_PM_SESSION:
+        return _load_instruction(f"instruction practice after baseline {cue}.txt")
+    return _load_instruction(f"instruction practice new cue {cue}.txt")
+
+
+def _load_session_instruction(session: int, participant_id: str) -> str:
+    """Load the main session instruction (shown at start, or after the practice block)."""
+    if session == 1:
+        return _load_session1_instruction(SESSION1_INSTRUCTION_LANGUAGE)
+    if session == 2:
+        return _load_instruction("instruction ses 2.txt")
+    if session == 3:
+        return _load_instruction("instruction ses 3.txt")
+    if session == 4:
+        return _load_instruction("instruction ses 4.txt")
+    if session == 5:
+        return _load_instruction("instruction ses 5.txt")
+    if session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
+        return _load_instruction("instruction ses 6 onward.txt")
+    cue = _secondary_cue_label(session, participant_id)
+    if session == FIRST_PM_SESSION:
+        return _load_instruction(f"instruction ses after baseline {cue}.txt")
+    if session == FIRST_SECOND_PM_PHASE_SESSION:
+        return _load_instruction(f"instruction ses new cue {cue}.txt")
+    return _load_instruction(f"instruction ses continue {cue}.txt")
+
+
+def _load_session_start_instruction(session: int, participant_id: str) -> str:
+    """First instruction screen: PM practice intro on sessions 13 and 20, else normal session intro."""
+    if session_needs_pm_practice_block(session):
+        return _load_pm_practice_instruction(session, participant_id)
+    return _load_session_instruction(session, participant_id)
 
 
 # =============================================================================
@@ -573,9 +673,12 @@ if SESSION < 1 or SESSION > MAX_SESSION:
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = INCLUDE_BURNIN_BLOCK  # hook for future session/day rules
+INCLUDE_PM_PRACTICE = (
+    session_needs_pm_practice_block(SESSION) and not DEBUG_CONFIG["enabled"]
+)
 
-if DEBUG_CONFIG["enabled"] and SESSION != 1:
-    # PM smoke test (sessions 2+ only). Session 1 always uses center single-cue training.
+if DEBUG_CONFIG["enabled"]:
+    # Short PM test session: trials 1-6 focal PM, 7-12 nonfocal PM (one per cue condition).
     SESSION_PHASE = "focal_pm"
     trials = build_debug_pm_test_trials(PARTICIPANT, SESSION)
 else:
@@ -584,6 +687,7 @@ else:
         SESSION,
         PARTICIPANT,
         include_burnin_block=INCLUDE_BURNIN,
+        include_pm_practice_block=INCLUDE_PM_PRACTICE,
     )
 N_TRIALS = len(trials)
 SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else N_BLOCKS
@@ -628,7 +732,11 @@ instructions = visual.TextStim(
     height=INSTRUCTION_LETTER_SIZE_DEG,
     wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
     units=USE_UNITS,
+    fontFiles=(
+        [str(INSTRUCTION_FONT_CJK)] if INSTRUCTION_FONT_CJK.exists() else []
+    ),
 )
+DEFAULT_INSTRUCTION_FONT = instructions.font
 
 feedback1 = visual.TextStim(
     win,
@@ -822,16 +930,65 @@ def _wait_space_or_exit():
             return False
 
 
-def _show_instruction_text(text: str):
+def _set_instruction_display(
+    text: str,
+    *,
+    language: str = "en",
+    use_cjk_font: bool = False,
+) -> None:
     instructions.setText(text)
+    if use_cjk_font and INSTRUCTION_FONT_CJK.exists():
+        instructions.font = INSTRUCTION_FONT_CJK_NAME
+    else:
+        instructions.font = DEFAULT_INSTRUCTION_FONT
+
+
+def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: str = "en"):
+    _set_instruction_display(text, language=language, use_cjk_font=use_cjk_font)
     instructions.draw()
     win.flip()
     return _wait_space_or_exit()
 
 
+def _show_session1_first_instruction() -> bool:
+    """Session 1 opening instruction with English / 中文 / dansk switching."""
+    global SESSION1_INSTRUCTION_LANGUAGE
+    language = "en"
+    while True:
+        body = _load_session1_instruction(language)
+        _set_instruction_display(
+            INSTRUCTION_LANGUAGE_SWITCHER[language] + body,
+            language=language,
+            use_cjk_font=True,
+        )
+        instructions.draw()
+        win.flip()
+        while True:
+            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"])
+            if not keys:
+                continue
+            key = keys[0]
+            if key == "c" and language != "zh":
+                language = "zh"
+                break
+            if key == "d" and language != "da":
+                language = "da"
+                break
+            if key == "e" and language != "en":
+                language = "en"
+                break
+            if key == START_KEY:
+                SESSION1_INSTRUCTION_LANGUAGE = language
+                return True
+            if key == QUIT_KEY and _confirm_exit_or_continue():
+                return False
+
+
 def _trials_in_block(block_number):
     if block_number == BURNIN_BLOCK_NUMBER:
         return BURNIN_TRIALS_PER_BLOCK
+    if block_number == PM_PRACTICE_BLOCK_NUMBER:
+        return TRIALS_PER_BLOCK
     return _block_trial_counts.get(block_number, TRIALS_PER_BLOCK)
 
 
@@ -844,6 +1001,14 @@ def _set_feedback4_text(trial):
             + str(trial_in_block)
             + " / "
             + str(BURNIN_TRIALS_PER_BLOCK)
+        )
+        return
+    if trial.get("pm_practice_block"):
+        feedback4.setText(
+            "Practice     Trial  "
+            + str(trial_in_block)
+            + " / "
+            + str(TRIALS_PER_BLOCK)
         )
         return
 
@@ -864,7 +1029,11 @@ def _set_feedback4_text(trial):
 # EXPERIMENT START
 # =============================================================================
 
-if not _show_instruction_text(_load_session_welcome_instruction(SESSION)):
+if SESSION == 1:
+    if not _show_session1_first_instruction():
+        win.close()
+        core.quit()
+elif not _show_instruction_text(_load_session_start_instruction(SESSION, PARTICIPANT)):
     win.close()
     core.quit()
 
@@ -880,7 +1049,13 @@ completed_normally = True
 for trial in trials:
     current_block = trial["block"]
     if prev_block is not None and current_block != prev_block:
-        if prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
+        if prev_block == PM_PRACTICE_BLOCK_NUMBER and current_block == 1:
+            if not _show_instruction_text(
+                _load_session_instruction(SESSION, PARTICIPANT)
+            ):
+                completed_normally = False
+                break
+        elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
             if not _show_instruction_text(_load_instruction("instruction burnin.txt")):
                 completed_normally = False
                 break
@@ -907,9 +1082,7 @@ for trial in trials:
 
     event.clearEvents()
 
-    single_center = trial.get("single_center")
-    if single_center is None:
-        single_center = DISPLAY_CONFIG.get("single_center", False)
+    single_center = trial.get("single_center", DISPLAY_CONFIG.get("single_center", False))
     if single_center:
         cue_slots = [(CENTER_POSITION_NAME, CENTER_POSITION, 0)]
     else:
@@ -990,7 +1163,11 @@ for trial in trials:
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
 
-    if DISPLAY_CONFIG["show_color_keymap"]:
+    show_keymap = (
+        DISPLAY_CONFIG.get("show_color_keymap", True)
+        and not trial.get("pm_practice_block")
+    )
+    if show_keymap:
         for square, label in keymap_stims:
             square.draw()
             label.draw()
