@@ -2,7 +2,7 @@ SESSION
 
 Continue with the same task as in your recent sessions.
 
-On some trials, one circle will show an ORANGE RING on its border. When you see it, press D instead of the color key.
+On some trials, one circle will show an ORANGE RING on its border. When you see it, press D with your left middle finger instead of the color key.
 
 Otherwise, choose the circle with the highest reward digit:
 

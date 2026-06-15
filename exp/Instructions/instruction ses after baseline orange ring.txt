@@ -4,7 +4,7 @@ You have now finished the baseline sessions. From this session on, the task is d
 
 In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
 
-On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see this orange ring, press D instead of the color key. Responding correctly earns 5 bonus points.
+On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see this orange ring, press D with your left middle finger instead of the color key. Responding correctly earns 5 bonus points.
 
 __________
 
