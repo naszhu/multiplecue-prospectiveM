@@ -1,11 +1,7 @@
 """
-Simple PsychoPy version of the multiple-cue prospective memory experiment.
+Simple PsychoPy smoke-test demo (10 trials).
 
-This is intentionally kept small and readable:
-- 10 total trials
-- 2 focal PM trials: circle keeps its task color; an orange in-channel marker is added
-- 2 nonfocal PM trials: one circle has a dashed outline
-- keyboard only
+Full 26-session experiment: see testmain.py
 """
 
 import math

@@ -117,6 +117,7 @@ def block_sizes_for_session(total_trials: int, n_blocks: int = N_BLOCKS_PER_SESS
 
 
 def get_pm_phase_order(participant_id: int) -> list[SessionPhase]:
+    """Counterbalance PM block order: odd IDs focal→nonfocal, even IDs nonfocal→focal."""
     first: SessionPhase = "focal_pm" if participant_id % 2 == 1 else "nonfocal_pm"
     second: SessionPhase = "nonfocal_pm" if first == "focal_pm" else "focal_pm"
     return [first, second]
