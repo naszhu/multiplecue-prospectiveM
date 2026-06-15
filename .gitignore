@@ -1,2 +1,4 @@
 exp/__pycache__/
 *.pyc
+
+exp/data_written/
