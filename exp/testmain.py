@@ -507,8 +507,8 @@ feedback4 = visual.TextStim(
 )
 
 # Color-response legend: slot order follows counterbalanced COLOR_KEY_MAPPING
-color_map_layout = "horizontal" if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE else COLOR_MAP_LAYOUT
-color_map_positions = _color_map_positions(color_map_layout, NUM_COLOR_SLOTS)
+# Keyboard-style NJK legend (staggered like responsebox), same for keyboard and self-made box
+color_map_positions = _color_map_positions(COLOR_MAP_LAYOUT, NUM_COLOR_SLOTS)
 slot_color_names = [COLOR_ID_TO_NAME[cid] for cid in SLOT_TO_COLOR_ID]
 keymap_stims = []
 if RESPONSE_DEVICE == RESPONSE_DEVICE_KEYBOARD:
