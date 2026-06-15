@@ -686,9 +686,9 @@ DAT_COLUMN_DESCRIPTIONS = {
     "Response": "Key pressed (lowercase) or timeout; escape not logged as a trial row.",
     "RespLoc": "Location id (1-3) of the participant's chosen cue; 0 if no valid chosen location.",
     "PointTargetResponse": "Three-digit one-hot vector of chosen cue location; all zeros if none.",
-    "RT": "Reaction time (ms) from stimulus onset using the PsychoPy clock.",
-    "RTComputerClock": "Reaction time (ms) using the PsychoPy computer clock (same as RT for keyboard).",
-    "RTDifference": "RTComputerClock minus RT (ms); 0 for keyboard.",
+    "RT": "Reaction time (ms). For self-made-response-box, this uses the device timer; for keyboard, this matches RTComputerClock.",
+    "RTComputerClock": "Reaction time (ms) using the PsychoPy computer clock.",
+    "RTDifference": "RTComputerClock minus RT (ms). For keyboard this is 0; for self-made-response-box this shows computer-clock minus device-clock RT.",
     "LateResponse": "True if RT (seconds) exceeded RESPONSE_DEADLINE; False otherwise.",
     "ACC": "1 if obtained reward equals max possible reward on that trial and max > 0; else 0.",
     "INTR": "1 if participant responded with a key whose mapped color was absent on screen; else 0.",
@@ -1980,35 +1980,56 @@ for trial in trials:
             square.draw()
             label.draw()
 
+    if serial_response_box is not None:
+        serial_response_box.reset_input_buffer()
+
     trial_clock.reset()
     win.flip()
     cue_time = trial_clock.getTime()
-    keys = event.waitKeys(
-        keyList=ALL_RESPONSE_KEYS,
-        maxWait=MAX_RESPONSE_TIME,
-        timeStamped=trial_clock,
-    )
+    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+        serial_response_box.write(b"S")
+        serial_response_box.flush()
+
+    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+        self_made_response = _wait_for_self_made_response_box(
+            serial_response_box, trial_clock, MAX_RESPONSE_TIME
+        )
+        keys = [self_made_response] if self_made_response else None
+    else:
+        keys = event.waitKeys(
+            keyList=ALL_RESPONSE_KEYS,
+            maxWait=MAX_RESPONSE_TIME,
+            timeStamped=trial_clock,
+        )
 
     max_reward_ccrp = max(trial["reward_values"]) if trial["reward_values"] else 0
     is_pm_trial = trial["is_pm_trial"]
     actual_reward = 0
     pressed_key = None
     rt = None
+    rt_computer_clock_ms = None
     timed_out = keys is None
 
-    if timed_out:
-        rt = MAX_RESPONSE_TIME * 1000
+    if keys:
+        pin_or_key = keys[0][0]
+        response_time = keys[0][1]
+        if pin_or_key == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                completed_normally = False
+                break
+            prev_block = current_block
+            trial_index += 1
+            continue
+        rt_computer_clock_ms = (response_time - cue_time) * 1000
+        if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+            rt = keys[0][2]
+            pressed_key = SELF_MADE_PIN_TO_KEY.get(pin_or_key)
+        else:
+            pressed_key = pin_or_key
+            rt = rt_computer_clock_ms
     else:
-        pressed_key, rt_seconds = keys[0]
-        rt = rt_seconds * 1000
-
-    if pressed_key == QUIT_KEY:
-        if _confirm_exit_or_continue():
-            completed_normally = False
-            break
-        prev_block = current_block
-        trial_index += 1
-        continue
+        rt = MAX_RESPONSE_TIME * 1000
+        rt_computer_clock_ms = rt
 
     if timed_out:
         max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
@@ -2086,6 +2107,7 @@ for trial in trials:
         position_to_reward=position_to_reward,
         pressed_key=pressed_key,
         rt_ms=rt,
+        rt_computer_clock_ms=rt_computer_clock_ms,
         cue_time=cue_time,
         end_trial_time=end_trial_time,
         actual_reward=actual_reward,
@@ -2138,4 +2160,6 @@ if completed_normally:
     event.waitKeys()
 
 win.close()
+if serial_response_box is not None:
+    serial_response_box.close()
 core.quit()
