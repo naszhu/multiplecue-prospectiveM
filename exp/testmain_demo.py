@@ -1,20 +1,25 @@
 """
-Simple PsychoPy version of the multiple-cue prospective memory experiment.
+PsychoPy version of the multiple-cue prospective memory experiment.
 
-This is intentionally kept small and readable:
-- 10 total trials
-- 2 focal PM trials: circle keeps its task color; an orange in-channel marker is added
-- 2 nonfocal PM trials: one circle has a dashed outline
-- keyboard only
+Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
+Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
+Keyboard only.
 """
 
+import json
 import math
 import random
-from psychopy import visual, core, event, monitors
+from itertools import permutations
+from pathlib import Path
+
+from psychopy import gui, visual, core, event, monitors
 
 # =============================================================================
 # CONFIG: CHANGE THESE VALUES FIRST
 # =============================================================================
+
+EXP_DIR = Path(__file__).resolve().parent
+INSTRUCTION_DIR = EXP_DIR / "Instructions"
 
 # Keep the normal window ratio, but allow easy scaling for high-res displays.
 BASE_WINDOW_SIZE = (1000, 700)
@@ -24,11 +29,9 @@ WINDOW_SIZE = (
     int(BASE_WINDOW_SIZE[1] * WINDOW_SCALE),
 )
 FULL_SCREEN = False
-# Gray background (non-black).
 BACKGROUND_COLOR = (128, 128, 128)
 COLOR_SPACE = "rgb255"
 
-N_TRIALS = 10
 FIXATION_TIME = 0.5
 MAX_RESPONSE_TIME = 3.0
 FEEDBACK_WAIT_TIME = 1.5
@@ -36,39 +39,69 @@ ITI_TIME = 0.3
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
-# Pseudo block structure (placeholder until full session blocks are wired up).
-N_BLOCKS = 2
-TRIALS_PER_BLOCK_MAIN = 3
-FIRST_WARMUP_TRIALS = 1
-OTHER_WARMUP_TRIALS = 1
-INCLUDE_BURNIN_BLOCK = True
-BURNIN_TRIALS_PER_BLOCK = 2
+# Session / phase design (see design.md)
+N_PRACTICE_SESSIONS = 5
+N_BASELINE_SESSIONS = 7
+N_PM_SESSIONS_PER_KIND = 7
+N_CUE_CONDITIONS = 6
+N_BLOCKS = 9
+TOTAL_TRIALS_PER_SESSION = 396
+TRIALS_PER_BLOCK = TOTAL_TRIALS_PER_SESSION // N_BLOCKS
+REPS_PER_CUE_PER_BLOCK = TRIALS_PER_BLOCK // N_CUE_CONDITIONS
+BLOCK_TRIAL_REMAINDER = TRIALS_PER_BLOCK % N_CUE_CONDITIONS
+
+PM_TRIALS_PER_CUE_PER_BLOCK = 1
+PM_TRIALS_PER_BLOCK = N_CUE_CONDITIONS * PM_TRIALS_PER_CUE_PER_BLOCK
+ONGOING_PER_BLOCK_PM_PHASE = TRIALS_PER_BLOCK - PM_TRIALS_PER_BLOCK
+ONGOING_REPS_PER_CUE_PM = ONGOING_PER_BLOCK_PM_PHASE // N_CUE_CONDITIONS
+ONGOING_REMAINDER_PM = ONGOING_PER_BLOCK_PM_PHASE % N_CUE_CONDITIONS
+
+MAX_SESSION = (
+    N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 2 * N_PM_SESSIONS_PER_KIND
+)
+MAX_PARTICIPANT_ID = 100
+PARTICIPANT_CHOICES = ["test"] + [str(i) for i in range(1, MAX_PARTICIPANT_ID + 1)]
+DEFAULT_PARTICIPANT = "test"
+
+# Warm-up / burn-in hooks (not active in main sessions yet).
+FIRST_WARMUP_TRIALS = 0
+OTHER_WARMUP_TRIALS = 0
+INCLUDE_BURNIN_BLOCK = False
+BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
 
-# Use the same "deg + StimFactor-like" sizing style as the example file.
+# Future per-practice-session trial-count overrides.
+PRACTICE_SESSION_CONFIG_OVERRIDES = {}
+
+# Future per-session welcome instruction paths (session number -> filename in Instructions/).
+SESSION_WELCOME_INSTRUCTION_OVERRIDES = {}
+
+# Future per-session display overrides (e.g. hide keymap, single center circle).
+DEFAULT_DISPLAY = {
+    "show_color_keymap": True,
+    "triangle_layout": True,
+    "n_positions": 3,
+}
+SESSION_DISPLAY_OVERRIDES = {}
+
 UNITS = "deg"
 BASE_STIM_FACTOR = 0.04
 STIM_SCALE = 1.55
 STIM_FACTOR = BASE_STIM_FACTOR * STIM_SCALE
 INSTRUCTION_WRAP_WIDTH_DEG = 800 * STIM_FACTOR
-# Keep disk placement independent from STIM_SCALE so the triangle geometry
-# stays like before (only disk size changes, not disk-to-disk distance).
 POSITION_SCALE = 1.0
 POSITION_FACTOR = BASE_STIM_FACTOR * POSITION_SCALE
 MONITOR_NAME = "testmain_demo_monitor"
 MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
 
-# Circle and number size assignments match the example style.
-CIRCLE_RADIUS = 20 * STIM_FACTOR       # 0.8
-INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR  # 0.35
-REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR  # 0.56
+CIRCLE_RADIUS = 20 * STIM_FACTOR
+INNER_CIRCLE_RADIUS = 8.75 * STIM_FACTOR
+REWARD_TEXT_HEIGHT = 14 * STIM_FACTOR
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
 
-# Focal PM markers are orange features added inside/on the task-colored circle.
-# Supported styles: inner_dot, center_ring, small_patch, halo, marker_bg
 FOCAL_PM_INNER_DOT_RADIUS = 3.5 * STIM_FACTOR
 FOCAL_PM_RING_RADIUS = (CIRCLE_RADIUS + INNER_CIRCLE_RADIUS) / 2
 FOCAL_PM_RING_LINE_WIDTH = 5
@@ -77,14 +110,8 @@ FOCAL_PM_PATCH_OFFSET = 0.55 * CIRCLE_RADIUS
 FOCAL_PM_HALO_RADIUS = CIRCLE_RADIUS * 1.08
 FOCAL_PM_HALO_LINE_WIDTH = 7
 FOCAL_PM_MARKER_BG_RADIUS = INNER_CIRCLE_RADIUS * 0.72
-# Single focal PM style for all focal trials (center ring visible with or without reward numeral).
 FOCAL_PM_STYLE = "center_ring"
 
-# Isosceles triangle layout:
-# - top is centered on x=0
-# - bottom points are symmetric at x=±BOTTOM_X
-# - both bottom points share the same y
-# This keeps equal left/right side lengths and makes bottom disks less crowded.
 TOP_Y = 60 * POSITION_FACTOR
 BOTTOM_Y = -50 * POSITION_FACTOR
 BOTTOM_X = 60 * POSITION_FACTOR
@@ -93,6 +120,8 @@ POSITIONS = {
     "bottom_left": (-BOTTOM_X, BOTTOM_Y),
     "bottom_right": (BOTTOM_X, BOTTOM_Y),
 }
+POSITION_NAMES = list(POSITIONS.keys())
+N_POSITIONS = len(POSITION_NAMES)
 
 COLORS = {
     "red": (220, 50, 50),
@@ -108,6 +137,7 @@ COLOR_KEYS = {
     "blue": "j",
     "green": "k",
 }
+COLOR_NAMES = list(COLOR_KEYS.keys())
 
 PM_KEY = "d"
 START_KEY = "space"
@@ -116,7 +146,6 @@ ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
 PM_REWARD = 5
 
-# Feedback (match multiplecue-responsebox/exp/testmain.py: Feedback1-4 layout)
 FEEDBACK_LETTER_SIZE_DEG = 50 * STIM_FACTOR
 FEEDBACK1_POS_DEG = (0, 70 * STIM_FACTOR)
 FEEDBACK2_POS_DEG = (0, -70 * STIM_FACTOR)
@@ -125,119 +154,302 @@ FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
 FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
 
-# Color-key mapping legend (NJK keyboard-style arrangement).
-# These are directly aligned with the example file style.
-KEYMAP_SQUARE_SIZE = 30 * STIM_FACTOR       # same as ResponseColorSize
+KEYMAP_SQUARE_SIZE = 30 * STIM_FACTOR
 KEYMAP_TEXT_HEIGHT = 0.55 * KEYMAP_SQUARE_SIZE
-KEYMAP_DISTANCE = 50 * STIM_FACTOR          # same as ResponseColorDistance
+KEYMAP_DISTANCE = 50 * STIM_FACTOR
 KEYMAP_EXTRA_DOWN = 0.75 * KEYMAP_DISTANCE
 KEYMAP_BASE_Y = (-150 * STIM_FACTOR) - KEYMAP_EXTRA_DOWN
-KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE   # same row spacing style as example
+KEYMAP_ROW_OFFSET = 0.6 * KEYMAP_DISTANCE
 
-
-# =============================================================================
-# TRIAL LIST: 10 SIMPLE TRIALS
-# =============================================================================
-
-# reward_values uses 0 for "empty inner circle" and 1/2/3 for displayed values.
-# pm_type can be None, "focal", or "nonfocal".
-# focal_pm_style applies only on focal trials (see FOCAL_PM_* constants above).
-trials = [
-    {"reward_values": [1, 0, 0], "pm_type": None, "pm_position": None},
-    {"reward_values": [0, 2, 0], "pm_type": None, "pm_position": None},
-    {
-        "reward_values": [0, 0, 3],
-        "pm_type": "focal",
-        "pm_position": "bottom_right",
-    },
-    {"reward_values": [2, 1, 0], "pm_type": None, "pm_position": None},
-    {"reward_values": [3, 0, 1], "pm_type": "nonfocal", "pm_position": "top"},
-    {"reward_values": [0, 3, 2], "pm_type": None, "pm_position": None},
-    {
-        "reward_values": [1, 0, 3],
-        "pm_type": "focal",
-        "pm_position": "bottom_left",
-    },
-    {"reward_values": [0, 1, 2], "pm_type": None, "pm_position": None},
-    {"reward_values": [2, 0, 3], "pm_type": "nonfocal", "pm_position": "bottom_right"},
-    {"reward_values": [0, 3, 0], "pm_type": None, "pm_position": None},
+CUE_CONDITIONS = [
+    {"values": (1,), "label": "(1)"},
+    {"values": (2,), "label": "(2)"},
+    {"values": (3,), "label": "(3)"},
+    {"values": (1, 2), "label": "(1,2)"},
+    {"values": (1, 3), "label": "(1,3)"},
+    {"values": (2, 3), "label": "(2,3)"},
 ]
 
-random.shuffle(trials)
 
-# Manually force PM placement:
-# - Trial 2 (index 1) is nonfocal
-# - Trial 4 (index 3) is focal
-# - Trial 6 (index 5) is nonfocal
-# - Trial 8 (index 7) is focal
-# - All other trials are normal (no PM cue)
-nonfocal_trials = [t for t in trials if t["pm_type"] == "nonfocal"]
-focal_trials = [t for t in trials if t["pm_type"] == "focal"]
-normal_trials = [t for t in trials if t["pm_type"] is None]
+# =============================================================================
+# SESSION PHASE + TRIAL GENERATION (all randomization happens here)
+# =============================================================================
 
-forced_trials = []
-for i in range(len(trials)):
-    if i in (1, 5):
-        forced_trials.append(nonfocal_trials.pop(0))
-    elif i in (3, 7):
-        forced_trials.append(focal_trials.pop(0))
+
+def _participant_number(participant_id: str):
+    """Return numeric participant ID, or None for non-numeric IDs like 'test'."""
+    if participant_id == "test":
+        return 1
+    try:
+        return int(participant_id)
+    except ValueError:
+        return None
+
+
+def session_phase_for(session: int, participant_id: str) -> str:
+    """Map 1-based session number to session_phase label."""
+    if session < 1 or session > MAX_SESSION:
+        raise ValueError(f"Session must be between 1 and {MAX_SESSION}.")
+
+    if session <= N_PRACTICE_SESSIONS:
+        return "practice"
+
+    baseline_end = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS
+    if session <= baseline_end:
+        return "baseline"
+
+    pm_first_end = baseline_end + N_PM_SESSIONS_PER_KIND
+    pm_second_end = pm_first_end + N_PM_SESSIONS_PER_KIND
+
+    participant_num = _participant_number(participant_id)
+    # Odd participant  → focal PM sessions first, then nonfocal PM sessions.
+    # Even participant → nonfocal PM sessions first, then focal PM sessions.
+    focal_first = participant_num is None or participant_num % 2 == 1
+
+    if session <= pm_first_end:
+        return "focal_pm" if focal_first else "nonfocal_pm"
+    if session <= pm_second_end:
+        return "nonfocal_pm" if focal_first else "focal_pm"
+
+    raise ValueError(f"Session {session} is out of range.")
+
+
+def get_session_display_config(session: int) -> dict:
+    """Display options for a session; defaults unless overridden."""
+    return {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
+
+
+def _pool_for_cue_condition(cue_condition: dict) -> list:
+    """
+    Enumerate all trial variants for one cue condition (reward position + color layout).
+    Adapted from multiplecue-responsebox/exp/testmain.py _pool_for_reward_condition.
+    """
+    reward_values = tuple(cue_condition["values"])
+    condition_label = cue_condition["label"]
+    all_colors = COLOR_NAMES[:]
+
+    def make_variant(position_to_color, position_to_reward):
+        return {
+            "position_to_color": position_to_color,
+            "position_to_reward": position_to_reward,
+            "cue_condition": condition_label,
+        }
+
+    if len(reward_values) == 1:
+        reward_value = reward_values[0]
+        out = []
+        for reward_pos in range(N_POSITIONS):
+            for color_perm in permutations(all_colors):
+                position_to_color = {i: color_perm[i] for i in range(N_POSITIONS)}
+                position_to_reward = {i: 0 for i in range(N_POSITIONS)}
+                position_to_reward[reward_pos] = reward_value
+                out.append(make_variant(position_to_color, position_to_reward))
+        return out
+
+    reward_a, reward_b = reward_values[0], reward_values[1]
+    out = []
+    for pos_a, pos_b in permutations(range(N_POSITIONS), 2):
+        for reward_at_a, reward_at_b in [(reward_a, reward_b), (reward_b, reward_a)]:
+            for color_perm in permutations(all_colors):
+                position_to_color = {i: color_perm[i] for i in range(N_POSITIONS)}
+                position_to_reward = {i: 0 for i in range(N_POSITIONS)}
+                position_to_reward[pos_a] = reward_at_a
+                position_to_reward[pos_b] = reward_at_b
+                out.append(make_variant(position_to_color, position_to_reward))
+    return out
+
+
+CUE_POOLS = [_pool_for_cue_condition(c) for c in CUE_CONDITIONS]
+
+
+def _variant_to_lists(variant: dict):
+    """Convert pool variant maps to position-ordered lists."""
+    reward_values = [variant["position_to_reward"][i] for i in range(N_POSITIONS)]
+    trial_colors = [variant["position_to_color"][i] for i in range(N_POSITIONS)]
+    return reward_values, trial_colors, variant["cue_condition"]
+
+
+def _apply_variant_to_stub(stub: dict, variant: dict):
+    reward_values, trial_colors, cue_condition = _variant_to_lists(variant)
+    stub["reward_values"] = reward_values
+    stub["trial_colors"] = trial_colors
+    stub["cue_condition"] = cue_condition
+
+
+def _ongoing_reps_for_cue(cue_index: int, session_phase: str) -> int:
+    if session_phase in ("focal_pm", "nonfocal_pm"):
+        base = ONGOING_REPS_PER_CUE_PM
+        remainder = ONGOING_REMAINDER_PM
     else:
-        forced_trials.append(normal_trials.pop(0))
+        base = REPS_PER_CUE_PER_BLOCK
+        remainder = BLOCK_TRIAL_REMAINDER
+    return base + (1 if cue_index < remainder else 0)
 
-trials = forced_trials
+
+def _pm_trial_kind_for_phase(session_phase: str):
+    if session_phase == "focal_pm":
+        return "focal"
+    if session_phase == "nonfocal_pm":
+        return "nonfocal"
+    return None
 
 
-def annotate_trials_with_pseudo_blocks(trial_list):
-    """Add block metadata fields used by testmain.py feedback and block breaks."""
-    annotated = []
-    trial_index = 0
+def _make_block(
+    rng: random.Random,
+    session_phase: str,
+    *,
+    burn_in_block: int = 0,
+) -> list:
+    """Build one block: cue-balanced stubs, pool draw per stub, within-block shuffle."""
+    block_trials = []
+    has_pm = session_phase in ("focal_pm", "nonfocal_pm")
+    pm_kind = _pm_trial_kind_for_phase(session_phase)
 
-    if INCLUDE_BURNIN_BLOCK:
-        for trial_in_block in range(1, BURNIN_TRIALS_PER_BLOCK + 1):
-            trial = dict(trial_list[trial_index])
-            trial_index += 1
+    for cue_index, cue_condition in enumerate(CUE_CONDITIONS):
+        pool = CUE_POOLS[cue_index]
+        n_ongoing = _ongoing_reps_for_cue(cue_index, session_phase)
+
+        if has_pm:
+            pm_stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": True,
+                "pm_trial_kind": pm_kind,
+                "pm_position": rng.choice(POSITION_NAMES),
+                "warm_up": 0,
+                "burn_in_block": burn_in_block,
+            }
+            _apply_variant_to_stub(pm_stub, rng.choice(pool))
+            block_trials.append(pm_stub)
+
+        for _ in range(n_ongoing):
+            ongoing_stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": False,
+                "pm_trial_kind": None,
+                "pm_position": None,
+                "warm_up": 0,
+                "burn_in_block": burn_in_block,
+            }
+            _apply_variant_to_stub(ongoing_stub, rng.choice(pool))
+            block_trials.append(ongoing_stub)
+
+    rng.shuffle(block_trials)
+    return block_trials
+
+
+def build_session_trials(
+    session_phase: str,
+    session_number: int,
+    participant_id: str,
+    *,
+    include_burnin_block: bool = False,
+) -> list:
+    """
+    Pre-design the full session trial list before the experiment starts.
+    All random draws use a seeded RNG (participant + session).
+    """
+    rng = random.Random(f"{participant_id}-{session_number}")
+    trials = []
+    trial_in_session = 0
+
+    if include_burnin_block:
+        burnin_block = _make_block(rng, session_phase, burn_in_block=1)
+        if len(burnin_block) > BURNIN_TRIALS_PER_BLOCK:
+            burnin_block = burnin_block[:BURNIN_TRIALS_PER_BLOCK]
+        for trial_in_block, trial in enumerate(burnin_block, start=1):
+            trial = dict(trial)
             trial.update(
                 block=BURNIN_BLOCK_NUMBER,
                 trial_in_block=trial_in_block,
-                warm_up=0,
-                burn_in_block=1,
+                trial_in_session=trial_in_session + 1,
             )
-            annotated.append(trial)
+            trials.append(trial)
+            trial_in_session += 1
 
-    trials_remaining = len(trial_list) - trial_index
-    trials_per_block = trials_remaining // N_BLOCKS
-    # Any remainder goes into the final block.
     for block_number in range(1, N_BLOCKS + 1):
-        if block_number == N_BLOCKS:
-            block_size = len(trial_list) - trial_index
-        else:
-            block_size = trials_per_block
-        warmup_trials = FIRST_WARMUP_TRIALS if block_number == 1 else OTHER_WARMUP_TRIALS
-        for trial_in_block in range(1, block_size + 1):
-            trial = dict(trial_list[trial_index])
-            trial_index += 1
+        block_trials = _make_block(rng, session_phase, burn_in_block=0)
+        for trial_in_block, trial in enumerate(block_trials, start=1):
+            trial = dict(trial)
             trial.update(
                 block=block_number,
                 trial_in_block=trial_in_block,
-                warm_up=1 if trial_in_block <= warmup_trials else 0,
-                burn_in_block=0,
+                trial_in_session=trial_in_session + 1,
             )
-            annotated.append(trial)
+            trials.append(trial)
+            trial_in_session += 1
 
-    if trial_index != len(trial_list):
-        raise ValueError("Pseudo block layout does not cover all demo trials.")
+    expected = (
+        (BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0)
+        + N_BLOCKS * TRIALS_PER_BLOCK
+    )
+    if len(trials) != expected:
+        raise ValueError(
+            f"Expected {expected} trials, got {len(trials)} for phase {session_phase!r}."
+        )
+    return trials
 
-    return annotated
+
+def _load_instruction(filename: str, **fmt) -> str:
+    path = INSTRUCTION_DIR / filename
+    if not path.exists():
+        raise SystemExit(f"Instruction file not found: {path}")
+    text = path.read_text(encoding="utf-8").strip()
+    if fmt:
+        text = text.format(**fmt)
+    return text
 
 
-trials = annotate_trials_with_pseudo_blocks(trials)
+def _load_session_welcome_instruction(session: int) -> str:
+    override = SESSION_WELCOME_INSTRUCTION_OVERRIDES.get(session)
+    if override:
+        return _load_instruction(override)
+    return _load_instruction("instruction welcome.txt")
+
+
+# =============================================================================
+# SESSION DIALOG
+# =============================================================================
+
+session_dlg = gui.Dlg(title="Prospective MCP Session")
+session_dlg.addField(
+    "Participant",
+    initial=DEFAULT_PARTICIPANT,
+    choices=PARTICIPANT_CHOICES,
+)
+session_dlg.addField("Session", initial="1")
+session_dlg.show()
+if not session_dlg.OK:
+    core.quit()
+
+PARTICIPANT = str(session_dlg.data[0]).strip()
+if PARTICIPANT not in PARTICIPANT_CHOICES:
+    raise SystemExit(
+        f"Participant must be 'test' or an integer from 1 to {MAX_PARTICIPANT_ID}."
+    )
+
+SESSION = int(session_dlg.data[1])
+if SESSION < 1 or SESSION > MAX_SESSION:
+    raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
+
+SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
+DISPLAY_CONFIG = get_session_display_config(SESSION)
+INCLUDE_BURNIN = INCLUDE_BURNIN_BLOCK  # hook for future session/day rules
+
+trials = build_session_trials(
+    SESSION_PHASE,
+    SESSION,
+    PARTICIPANT,
+    include_burnin_block=INCLUDE_BURNIN,
+)
 N_TRIALS = len(trials)
+
+# print(json.dumps(trials, indent=2))  # full pre-designed session structure
 
 
 # =============================================================================
 # WINDOW AND STIMULI
 # =============================================================================
-# With units="deg", PsychoPy needs a monitor with known pixel size.
+
 mon = monitors.Monitor(MONITOR_NAME)
 mon.setSizePix(WINDOW_SIZE)
 mon.setWidth(MONITOR_WIDTH_CM)
@@ -262,17 +474,12 @@ fixation = visual.TextStim(
 
 instructions = visual.TextStim(
     win,
-    text=(
-        "Choose the color circle with the highest reward value.\n\n"
-        "Red = N     Blue = J     Green = K\n\n"
-        "PM rule: if one circle has an ORANGE marker (dot/ring/patch), or a DASHED outline,\n"
-        "press D instead of the color key. Circle colors stay red/blue/green.\n\n"
-        "Press SPACE to start."
-    ),
+    text="",
     color=COLORS["white"],
     colorSpace=COLOR_SPACE,
-    height=0.6,
-    wrapWidth=24,
+    height=INSTRUCTION_LETTER_SIZE_DEG,
+    wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+    units=UNITS,
 )
 
 feedback1 = visual.TextStim(
@@ -317,7 +524,7 @@ feedback4 = visual.TextStim(
 )
 end_text = visual.TextStim(
     win,
-    text="End of session!\n\n\nContact the Experimenter",
+    text=_load_instruction("instruction end.txt"),
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
@@ -340,38 +547,15 @@ block_break_text = visual.TextStim(
     wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
     units=UNITS,
 )
-burnin_instruction_text = visual.TextStim(
-    win,
-    text=(
-        "Burn-in block complete.\n\n"
-        "This is a placeholder transition screen matching the full experiment.\n\n"
-        "Press SPACE to continue to Block 1."
-    ),
-    color=FEEDBACK_TEXT_COLOR,
-    colorSpace=COLOR_SPACE,
-    height=INSTRUCTION_LETTER_SIZE_DEG,
-    wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
-    units=UNITS,
-)
 
-# -------------------------------------------------------------------------
-# KEY MAPPING STIMULI (NJK keyboard arrangement)
-# -------------------------------------------------------------------------
-# 1) Compute a bottom-center anchor for the 3-key legend
-# 2) Define raw NJK offsets (N lower row, J/K upper row and shifted right)
-# 3) Re-center offsets so the 3-key cluster is truly centered at the anchor
 keymap_center = (0.0, KEYMAP_BASE_Y)
-
 top_row_y = KEYMAP_ROW_OFFSET
 bottom_row_y = -KEYMAP_ROW_OFFSET
-
 raw_key_offsets = {
-    # N is on lower row; J/K are on upper row and shifted right.
     "n": (-0.6 * KEYMAP_DISTANCE, bottom_row_y),
     "j": (0.0, top_row_y),
     "k": (1.0 * KEYMAP_DISTANCE, top_row_y),
 }
-
 mean_x = sum(v[0] for v in raw_key_offsets.values()) / 3
 mean_y = sum(v[1] for v in raw_key_offsets.values()) / 3
 key_offsets = {
@@ -484,7 +668,6 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
 
 
 def _confirm_exit_or_continue():
-    """After ESC: return True if user confirms exit (second ESC), False to continue."""
     esc_confirm_text.draw()
     win.flip()
     keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY])
@@ -492,7 +675,6 @@ def _confirm_exit_or_continue():
 
 
 def _wait_space_or_exit():
-    """Wait for space to continue. Return False if user exits via double ESC."""
     while True:
         keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY])
         if not keys:
@@ -503,23 +685,20 @@ def _wait_space_or_exit():
             return False
 
 
-def _show_instruction_screen(instruction_stim):
-    """Draw an instruction screen and wait for SPACE (or double-ESC exit)."""
-    instruction_stim.draw()
+def _show_instruction_text(text: str):
+    instructions.setText(text)
+    instructions.draw()
     win.flip()
     return _wait_space_or_exit()
 
 
 def _trials_in_block(block_number):
-    """Total trials expected in a pseudo block, including warm-up trials."""
     if block_number == BURNIN_BLOCK_NUMBER:
         return BURNIN_TRIALS_PER_BLOCK
-    warmup_trials = FIRST_WARMUP_TRIALS if block_number == 1 else OTHER_WARMUP_TRIALS
-    return warmup_trials + TRIALS_PER_BLOCK_MAIN
+    return TRIALS_PER_BLOCK
 
 
 def _set_feedback4_text(trial):
-    """Match multiplecue-responsebox feedback4 formatting."""
     current_block = trial["block"]
     trial_in_block = trial["trial_in_block"]
     if trial.get("burn_in_block"):
@@ -548,49 +727,34 @@ def _set_feedback4_text(trial):
 # EXPERIMENT START
 # =============================================================================
 
-instructions.draw()
-win.flip()
-if not _wait_space_or_exit():
+if not _show_instruction_text(_load_session_welcome_instruction(SESSION)):
     win.close()
     core.quit()
 
-if INCLUDE_BURNIN_BLOCK:
-    # Placeholder burn-in preamble, matching the full experiment's extra instruction screen.
-    burnin_intro_text = visual.TextStim(
-        win,
-        text=(
-            "Pseudo burn-in block.\n\n"
-            "This placeholder block mirrors the burn-in transition used in the full task.\n\n"
-            "Press SPACE to begin."
-        ),
-        color=FEEDBACK_TEXT_COLOR,
-        colorSpace=COLOR_SPACE,
-        height=INSTRUCTION_LETTER_SIZE_DEG,
-        wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
-        units=UNITS,
-    )
-    if not _show_instruction_screen(burnin_intro_text):
+if INCLUDE_BURNIN:
+    if not _show_instruction_text(_load_instruction("instruction burnin intro.txt")):
         win.close()
         core.quit()
 
 cum_reward = 0.0
-position_names = list(POSITIONS.keys())
-color_names = list(COLOR_KEYS.keys())
 prev_block = None
 completed_normally = True
 
-for trial_number, trial in enumerate(trials, start=1):
+for trial in trials:
     current_block = trial["block"]
     if prev_block is not None and current_block != prev_block:
         if prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_screen(burnin_instruction_text):
+            if not _show_instruction_text(_load_instruction("instruction burnin.txt")):
                 completed_normally = False
                 break
         else:
             block_break_text.setText(
-                f"End of Block {prev_block}.\n\n"
-                f"Next: Block {current_block} of {N_BLOCKS}.\n\n"
-                "Press SPACE to continue."
+                _load_instruction(
+                    "instruction block break.txt",
+                    prev_block=prev_block,
+                    next_block=current_block,
+                    n_blocks=N_BLOCKS,
+                )
             )
             block_break_text.draw()
             win.flip()
@@ -598,35 +762,30 @@ for trial_number, trial in enumerate(trials, start=1):
                 completed_normally = False
                 break
 
-    # Randomize which color appears at each position, so location does not predict response.
-    trial_colors = color_names[:]
-    random.shuffle(trial_colors)
+    trial_colors = trial["trial_colors"]
 
-    # -------------------------------------------------------------------------
-    # FIXATION
-    # -------------------------------------------------------------------------
     fixation.draw()
     win.flip()
     core.wait(FIXATION_TIME)
 
-    # -------------------------------------------------------------------------
-    # STIMULUS DISPLAY
-    # -------------------------------------------------------------------------
     event.clearEvents()
 
-    for i, position_name in enumerate(position_names):
+    for i, position_name in enumerate(POSITION_NAMES):
         pos = POSITIONS[position_name]
         normal_color = trial_colors[i]
         reward_value = trial["reward_values"][i]
         is_focal_pm_target = (
-            trial["pm_type"] == "focal" and position_name == trial["pm_position"]
+            trial["is_pm_trial"]
+            and trial["pm_trial_kind"] == "focal"
+            and position_name == trial["pm_position"]
         )
         is_nonfocal_pm_target = (
-            trial["pm_type"] == "nonfocal" and position_name == trial["pm_position"]
+            trial["is_pm_trial"]
+            and trial["pm_trial_kind"] == "nonfocal"
+            and position_name == trial["pm_position"]
         )
         focal_pm_style = trial.get("focal_pm_style", FOCAL_PM_STYLE)
 
-        # Focal PM keeps the task color; an orange marker is added later.
         outer_circle = visual.Circle(
             win,
             radius=CIRCLE_RADIUS,
@@ -668,10 +827,6 @@ for trial_number, trial in enumerate(trials, start=1):
         else:
             reward_text.draw()
 
-        # Nonfocal PM cue: draw a dashed white outline on the same border radius
-        # as the original circle border (not a bigger outside circle).
-        # PsychoPy does not have a dashed-circle option, so each dash is a short
-        # white line between two nearby points on an invisible circle.
         if is_nonfocal_pm_target:
             for dash_start in range(0, 360, 24):
                 angle1 = math.radians(dash_start)
@@ -689,10 +844,10 @@ for trial_number, trial in enumerate(trials, start=1):
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
 
-    # Draw color-key mapping on every trial.
-    for square, label in keymap_stims:
-        square.draw()
-        label.draw()
+    if DISPLAY_CONFIG["show_color_keymap"]:
+        for square, label in keymap_stims:
+            square.draw()
+            label.draw()
 
     clock = core.Clock()
     win.flip()
@@ -703,11 +858,8 @@ for trial_number, trial in enumerate(trials, start=1):
         timeStamped=clock,
     )
 
-    # -------------------------------------------------------------------------
-    # RESPONSE SCORING
-    # -------------------------------------------------------------------------
     max_reward_ccrp = max(trial["reward_values"]) if trial["reward_values"] else 0
-    is_pm_trial = trial["pm_type"] is not None
+    is_pm_trial = trial["is_pm_trial"]
     actual_reward = 0
     pressed_key = None
     rt = None
@@ -753,9 +905,6 @@ for trial_number, trial in enumerate(trials, start=1):
     cum_reward += actual_reward * REWARD_MONEY_FACTOR
     cum_reward = round(cum_reward, 2)
 
-    # -------------------------------------------------------------------------
-    # FEEDBACK SCREEN (match multiplecue-responsebox/exp/testmain.py)
-    # -------------------------------------------------------------------------
     if timed_out:
         feedback1.setText(TOO_SLOW_TEXT)
         feedback1.bold = True
