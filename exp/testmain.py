@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import csv
 import math
+import random
 import time
+from itertools import permutations
 from pathlib import Path
 
 from psychopy import visual, core, event, monitors, gui
@@ -42,6 +44,14 @@ from trial_schedule import (
 EXP_DIR = Path(__file__).resolve().parent
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
 DATA_DIR = EXP_DIR / "data_written"
+PARTICIPANT_COLOR_KEY_MAPPING_PATH = EXP_DIR / "participant_color_key_mapping.csv"
+
+NUM_COLOR_SLOTS = 3
+MAX_PARTICIPANT_ID = 100
+COLOR_LETTER_TO_ID = {"r": 1, "b": 2, "g": 3}
+ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rgb")})
+COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
+COLOR_KEY_MAPPING_DIALOG_CHOICES = [COLOR_KEY_MAPPING_AUTO_CHOICE] + ALL_COLOR_KEY_MAPPINGS
 
 # =============================================================================
 # DISPLAY / TIMING
@@ -102,8 +112,10 @@ COLORS = {
     "black": (0, 0, 0),
 }
 COLOR_ID_TO_NAME = {1: "red", 2: "blue", 3: "green"}
-COLOR_KEYS = {"red": "n", "blue": "j", "green": "k"}
-KEY_TO_COLOR = {v: k for k, v in COLOR_KEYS.items()}
+
+# Fixed response slots (right hand): index / middle / ring → N J K or pins 8 9 10
+RESPONSE_SLOT_KEYS = ["n", "j", "k"]
+SELF_MADE_COLOR_SLOT_PINS = ["8", "9", "10"]
 
 PM_KEY = "d"
 START_KEY = "space"
@@ -116,28 +128,102 @@ CEDRUS_VID = 0x0403
 CEDRUS_PID = 0x6001
 SERIAL_BAUDRATE = 115200
 
-# Self-made box pins (same serial protocol as multiplecue-responsebox/exp/testmain.py).
-# CCRP instruction ses 1 self-made-response-box.txt:
-#   C0=left middle=pin 6, C1=left index=pin 7, C2=right middle=pin 9, C3=right index=pin 8
-# PM uses left middle (pin 6). Ongoing colors use right hand only (index/middle/ring).
+# PM = left middle finger (CCRP slot C0, pin 6). Color pins are slot-fixed, not color-fixed.
 SELF_MADE_PM_PIN = "6"
-SELF_MADE_COLOR_PINS = {
-    "red": "8",    # right index (keyboard N)
-    "blue": "9",   # right middle (keyboard J)
-    "green": "10", # right ring (keyboard K)
+SELF_MADE_PIN_TO_LOGICAL_KEY = {
+    SELF_MADE_PM_PIN: PM_KEY,
+    **dict(zip(SELF_MADE_COLOR_SLOT_PINS, RESPONSE_SLOT_KEYS)),
 }
 
-
-def _build_self_made_pin_to_logical_key() -> dict[str, str]:
-    pin_map = {pin: key for color, pin in SELF_MADE_COLOR_PINS.items() for key in [COLOR_KEYS[color]]}
-    pin_map[SELF_MADE_PM_PIN] = PM_KEY
-    return pin_map
-
-
-SELF_MADE_PIN_TO_LOGICAL_KEY = _build_self_made_pin_to_logical_key()
-
-ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
+ALL_RESPONSE_KEYS = RESPONSE_SLOT_KEYS + [PM_KEY, QUIT_KEY]
 PM_REWARD = 5
+
+# Set after session dialog from participant_color_key_mapping.csv
+COLOR_KEY_MAPPING = "rgb"
+COLOR_KEY_MAPPING_ASSIGNED = "rgb"
+COLOR_KEY_MAPPING_OVERRIDDEN = False
+SLOT_TO_COLOR_ID: list[int] = [1, 2, 3]
+KEY_TO_COLOR_ID: dict[str, int] = {}
+
+
+def _load_participant_color_key_mapping_table() -> dict[str, str]:
+    path = PARTICIPANT_COLOR_KEY_MAPPING_PATH
+    if not path.is_file():
+        raise SystemExit(f"Missing color-key mapping table: {path}")
+    table: dict[str, str] = {}
+    with open(path, newline="", encoding="utf-8") as fp:
+        reader = csv.DictReader(fp)
+        if (
+            reader.fieldnames is None
+            or "participant_id" not in reader.fieldnames
+            or "color_key_mapping" not in reader.fieldnames
+        ):
+            raise SystemExit(f"Invalid mapping table columns in {path}")
+        for row in reader:
+            pid = str(row["participant_id"]).strip()
+            mapping = str(row["color_key_mapping"]).strip().lower()
+            if mapping not in ALL_COLOR_KEY_MAPPINGS:
+                raise SystemExit(f"Invalid mapping {mapping!r} for participant {pid} in {path}")
+            table[pid] = mapping
+    for p in range(1, MAX_PARTICIPANT_ID + 1):
+        if str(p) not in table:
+            raise SystemExit(f"Mapping table missing participant_id {p} in {path}")
+    return table
+
+
+PARTICIPANT_COLOR_KEY_MAPPING = _load_participant_color_key_mapping_table()
+
+
+def _slot_color_ids(mapping: str) -> list[int]:
+    return [COLOR_LETTER_TO_ID[c] for c in mapping.lower()]
+
+
+def _validate_color_key_mapping(mapping: str) -> str:
+    mapping = str(mapping).strip().lower()
+    if mapping not in ALL_COLOR_KEY_MAPPINGS:
+        raise SystemExit(f"Invalid color key mapping: {mapping!r}")
+    return mapping
+
+
+def _assigned_color_key_mapping(participant: str) -> str:
+    if participant == "test":
+        return random.choice(ALL_COLOR_KEY_MAPPINGS)
+    return PARTICIPANT_COLOR_KEY_MAPPING[participant]
+
+
+def _resolve_color_key_mapping_from_dialog(
+    participant: str, dialog_choice: str
+) -> tuple[str, str, bool]:
+    assigned = _assigned_color_key_mapping(participant)
+    choice = str(dialog_choice).strip()
+    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
+        return assigned, assigned, False
+    used = _validate_color_key_mapping(choice)
+    return assigned, used, used != assigned
+
+
+def _apply_color_key_mapping(mapping: str) -> None:
+    global SLOT_TO_COLOR_ID, KEY_TO_COLOR_ID
+    SLOT_TO_COLOR_ID = _slot_color_ids(mapping)
+    KEY_TO_COLOR_ID = {
+        RESPONSE_SLOT_KEYS[slot]: SLOT_TO_COLOR_ID[slot] for slot in range(NUM_COLOR_SLOTS)
+    }
+
+
+def _color_key_mapping_description(mapping: str, response_device: str) -> str:
+    slot_colors = [COLOR_ID_TO_NAME[cid] for cid in _slot_color_ids(mapping)]
+    order = ", ".join(slot_colors)
+    if response_device == RESPONSE_DEVICE_KEYBOARD:
+        keys = ", ".join(k.upper() for k in RESPONSE_SLOT_KEYS)
+        return (
+            f"Mapping {mapping}: slot colors left-to-right are {order} "
+            f"on keys {keys} (N, J, K; right index, middle, ring)."
+        )
+    pins = ", ".join(SELF_MADE_COLOR_SLOT_PINS)
+    return (
+        f"Mapping {mapping}: self-made color pins left-to-right ({pins}) are {order}. "
+        f"PM pin {SELF_MADE_PM_PIN} (left middle)."
+    )
 
 FEEDBACK_LETTER_SIZE_DEG = 50 * STIM_FACTOR
 FEEDBACK1_POS_DEG = (0, 70 * STIM_FACTOR)
@@ -152,8 +238,6 @@ RESPONSE_COLOR_SIZE_DEG = 30 * STIM_FACTOR
 RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR
 COLOR_MAP_Y_DEG = -150 * STIM_FACTOR
 COLOR_MAP_LAYOUT = "keyboard"  # "horizontal" or "keyboard" (responsebox options)
-COLOR_KEY_ORDER = ["n", "j", "k"]
-COLOR_DISPLAY_ORDER = ["red", "blue", "green"]
 
 
 def _logical_key_from_response(pressed) -> str | None:
@@ -298,30 +382,57 @@ session_dlg.addField(
     initial=DEFAULT_RESPONSE_DEVICE,
     choices=[RESPONSE_DEVICE_KEYBOARD, RESPONSE_DEVICE_SELF_MADE],
 )
+session_dlg.addField(
+    "Color key mapping",
+    initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
+    choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
+    tip="Default uses table assignment (random for test). Pick a mapping only to override.",
+)
 dlg_data = session_dlg.show()
 if not session_dlg.OK:
     core.quit()
 
-PARTICIPANT_ID = int(dlg_data[0])
+PARTICIPANT = str(dlg_data[0]).strip()
 SESSION = int(dlg_data[1])
 FIRST_SESSION_OF_DAY = dlg_data[2] == "yes"
 PARTICIPATION_DAY = int(dlg_data[3])
 DEBUG_MODE = dlg_data[4] == "yes" or DEBUG_CONFIG["enabled"]
 RESPONSE_DEVICE = dlg_data[5]
 
+if PARTICIPANT == "test":
+    PARTICIPANT_ID = 0
+    _counterbalance_participant_id = 1
+else:
+    try:
+        PARTICIPANT_ID = int(PARTICIPANT)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Participant must be 'test' or an integer from 1 to {MAX_PARTICIPANT_ID}."
+        ) from exc
+    if not 1 <= PARTICIPANT_ID <= MAX_PARTICIPANT_ID:
+        raise SystemExit(f"Participant must be 1..{MAX_PARTICIPANT_ID}")
+    _counterbalance_participant_id = PARTICIPANT_ID
+
+COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
+    _resolve_color_key_mapping_from_dialog(PARTICIPANT, dlg_data[6])
+)
+_apply_color_key_mapping(COLOR_KEY_MAPPING)
+print(_color_key_mapping_description(COLOR_KEY_MAPPING, RESPONSE_DEVICE))
+
 if not 1 <= SESSION <= TOTAL_SESSIONS:
     raise SystemExit(f"Session must be 1..{TOTAL_SESSIONS}")
 
-PHASE_CONFIG = resolve_session_phase(SESSION, PARTICIPANT_ID)
-PM_PHASE_ORDER = get_pm_phase_order(PARTICIPANT_ID)
-PARTICIPANT_PARITY = "odd" if PARTICIPANT_ID % 2 == 1 else "even"
+PHASE_CONFIG = resolve_session_phase(SESSION, _counterbalance_participant_id)
+PM_PHASE_ORDER = get_pm_phase_order(_counterbalance_participant_id)
+PARTICIPANT_PARITY = "odd" if _counterbalance_participant_id % 2 == 1 else "even"
 print(
-    f"Participant {PARTICIPANT_ID} ({PARTICIPANT_PARITY}): "
+    f"Participant {PARTICIPANT} ({PARTICIPANT_PARITY}): "
     f"PM order = {PM_PHASE_ORDER[0]} → {PM_PHASE_ORDER[1]}"
 )
 print(f"Session {SESSION}: running phase = {PHASE_CONFIG.session_phase}")
 DISPLAY_PROFILE = display_profile_for_session(SESSION)
-SCHEDULE_RNG_SEED = PARTICIPANT_ID * 1000 + SESSION
+_schedule_participant = _counterbalance_participant_id if PARTICIPANT != "test" else 999
+SCHEDULE_RNG_SEED = _schedule_participant * 1000 + SESSION
 _schedule_rng = __import__("random").Random(SCHEDULE_RNG_SEED)
 trial_data_list = build_session_schedule(PHASE_CONFIG, _schedule_rng)
 if not DEBUG_MODE:
@@ -344,7 +455,7 @@ BLOCK_SIZES = block_sizes_for_session(PHASE_CONFIG.trials_per_session, N_BLOCKS_
 TOO_SLOW_TEXT = _load_instruction(instruction_file_for_session(SESSION, "too_slow"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-csv_path = DATA_DIR / f"p{PARTICIPANT_ID}_ses{SESSION}_trials.csv"
+csv_path = DATA_DIR / f"p{PARTICIPANT}_ses{SESSION}_trials.csv"
 
 # =============================================================================
 # WINDOW
@@ -395,18 +506,19 @@ feedback4 = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR, colorSpace=COLOR_SPACE, units=UNITS, opacity=STIMULUS_OPACITY,
 )
 
-# Color-response legend (keyboard NJK labels or self-made right-hand color squares)
+# Color-response legend: slot order follows counterbalanced COLOR_KEY_MAPPING
 color_map_layout = "horizontal" if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE else COLOR_MAP_LAYOUT
-color_map_positions = _color_map_positions(color_map_layout, len(COLOR_DISPLAY_ORDER))
+color_map_positions = _color_map_positions(color_map_layout, NUM_COLOR_SLOTS)
+slot_color_names = [COLOR_ID_TO_NAME[cid] for cid in SLOT_TO_COLOR_ID]
 keymap_stims = []
 if RESPONSE_DEVICE == RESPONSE_DEVICE_KEYBOARD:
-    for key, pos in zip(COLOR_KEY_ORDER, color_map_positions):
+    for key, color_name, pos in zip(RESPONSE_SLOT_KEYS, slot_color_names, color_map_positions):
         square = visual.Rect(
             win,
             width=RESPONSE_COLOR_SIZE_DEG,
             height=RESPONSE_COLOR_SIZE_DEG,
             pos=pos,
-            fillColor=COLORS[KEY_TO_COLOR[key]],
+            fillColor=COLORS[color_name],
             fillColorSpace=COLOR_SPACE,
             lineColor=None,
             units=UNITS,
@@ -422,7 +534,7 @@ if RESPONSE_DEVICE == RESPONSE_DEVICE_KEYBOARD:
         )
         keymap_stims.append((square, label))
 else:
-    for color_name, pos in zip(COLOR_DISPLAY_ORDER, color_map_positions):
+    for color_name, pos in zip(slot_color_names, color_map_positions):
         square = visual.Rect(
             win,
             width=RESPONSE_COLOR_SIZE_DEG,
@@ -545,14 +657,13 @@ def _score_trial(trial: TrialPlan, pressed_key, timed_out: bool):
     rewards = [trial.position_to_reward.get(i) or 0 for i in range(3)]
     max_reward_ccrp = max(rewards) if rewards else 0
     actual_reward = 0
-    name_to_id = {v: k for k, v in COLOR_ID_TO_NAME.items()}
 
     if trial.is_pm_trial:
         max_reward = PM_REWARD
         if not timed_out and pressed_key == PM_KEY:
             actual_reward = PM_REWARD
-        elif not timed_out and pressed_key in KEY_TO_COLOR:
-            color_id = name_to_id[KEY_TO_COLOR[pressed_key]]
+        elif not timed_out and pressed_key in KEY_TO_COLOR_ID:
+            color_id = KEY_TO_COLOR_ID[pressed_key]
             for i in range(3):
                 if trial.position_to_color_id[i] == color_id:
                     actual_reward = rewards[i]
@@ -561,8 +672,8 @@ def _score_trial(trial: TrialPlan, pressed_key, timed_out: bool):
         max_reward = max_reward_ccrp
         if not timed_out and pressed_key == PM_KEY:
             actual_reward = 0
-        elif not timed_out and pressed_key in KEY_TO_COLOR:
-            color_id = name_to_id[KEY_TO_COLOR[pressed_key]]
+        elif not timed_out and pressed_key in KEY_TO_COLOR_ID:
+            color_id = KEY_TO_COLOR_ID[pressed_key]
             for i in range(3):
                 if trial.position_to_color_id[i] == color_id:
                     actual_reward = rewards[i]
@@ -689,10 +800,13 @@ for trial in trial_data_list:
     row.update({
         "ExperimentName": EXPERIMENT_NAME,
         "CodeVersion": CODE_VERSION,
-        "Participant": PARTICIPANT_ID,
+        "Participant": PARTICIPANT,
         "ParticipantParity": PARTICIPANT_PARITY,
         "PmPhaseOrderFirst": PM_PHASE_ORDER[0],
         "PmPhaseOrderSecond": PM_PHASE_ORDER[1],
+        "ColorKeyMapping": COLOR_KEY_MAPPING,
+        "ColorKeyMappingAssigned": COLOR_KEY_MAPPING_ASSIGNED,
+        "ColorKeyMappingOverridden": int(COLOR_KEY_MAPPING_OVERRIDDEN),
         "Session": SESSION,
         "SessionPhase": PHASE_CONFIG.session_phase,
         "DebugMode": int(DEBUG_MODE),
