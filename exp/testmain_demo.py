@@ -731,9 +731,18 @@ def _secondary_cue_label(session: int, participant_id: str) -> str:
 def get_session_display_config(session: int) -> dict:
     """Display options for a session; defaults unless overridden."""
     cfg = {**DEFAULT_DISPLAY, **SESSION_DISPLAY_OVERRIDES.get(session, {})}
-    # Session 1: one single-cue disk at screen center (match testmain.py session 1).
     if session == 1:
+        # One circle at center; color keymap visible.
         cfg.update(single_center=True, triangle_layout=False, show_color_keymap=True)
+    elif session == 2:
+        # Triangle layout; single-cue trials; color keymap visible.
+        cfg.update(single_center=False, triangle_layout=True, show_color_keymap=True)
+    elif session == 3:
+        # Triangle layout; dual-cue trials; color keymap visible.
+        cfg.update(single_center=False, triangle_layout=True, show_color_keymap=True)
+    else:
+        # Sessions 4+: triangle layout; no on-screen color keymap.
+        cfg.update(single_center=False, triangle_layout=True, show_color_keymap=False)
     return cfg
 
 
@@ -744,6 +753,18 @@ def get_session_generation_config(session: int) -> dict:
             "cue_conditions": SINGLE_CUE_CONDITIONS,
             "single_center": True,
             "n_cue_conditions": len(SINGLE_CUE_CONDITIONS),
+        }
+    elif session == 2:
+        defaults = {
+            "cue_conditions": SINGLE_CUE_CONDITIONS,
+            "single_center": False,
+            "n_cue_conditions": len(SINGLE_CUE_CONDITIONS),
+        }
+    elif session in (3, 4):
+        defaults = {
+            "cue_conditions": DUAL_CUE_CONDITIONS,
+            "single_center": False,
+            "n_cue_conditions": len(DUAL_CUE_CONDITIONS),
         }
     else:
         defaults = {
@@ -763,6 +784,7 @@ CUE_CONDITIONS = [
     {"values": (2, 3), "label": "(2,3)"},
 ]
 SINGLE_CUE_CONDITIONS = CUE_CONDITIONS[:3]
+DUAL_CUE_CONDITIONS = CUE_CONDITIONS[3:]
 CENTER_POSITION = (0.0, 0.0)
 CENTER_POSITION_NAME = "center"
 SESSION_GENERATION_OVERRIDES = {}
