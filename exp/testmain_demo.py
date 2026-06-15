@@ -1628,6 +1628,7 @@ win = visual.Window(
     colorSpace=COLOR_SPACE,
     monitor=mon,
 )
+win.setMouseVisible(False)
 
 fixation = visual.TextStim(
     win,
