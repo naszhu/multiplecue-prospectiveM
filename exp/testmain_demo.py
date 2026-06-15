@@ -68,7 +68,8 @@ DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
 
 ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rbg")})
 COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
-COLOR_KEY_MAPPING_DIALOG_CHOICES = [COLOR_KEY_MAPPING_AUTO_CHOICE] + ALL_COLOR_KEY_MAPPINGS
+COLOR_KEY_MAPPING_DIALOG_CHOICES: list[str] = []
+COLOR_KEY_MAPPING_CHOICE_TO_VALUE: dict[str, str] = {}
 COLOR_MAP_LAYOUT_AUTO_CHOICE = "as assigned"
 COLOR_MAP_LAYOUT_DIALOG_CHOICES = [COLOR_MAP_LAYOUT_AUTO_CHOICE, "njk"]
 
@@ -171,6 +172,31 @@ def _validate_color_key_mapping(mapping: str) -> str:
     return mapping
 
 
+def _color_key_mapping_dialog_label(mapping: str) -> str:
+    """Human-readable dropdown label for one mapping code."""
+    return (
+        f"{mapping}  (N={COLOR_LETTER_TO_NAME[mapping[0]]}, "
+        f"J={COLOR_LETTER_TO_NAME[mapping[1]]}, "
+        f"K={COLOR_LETTER_TO_NAME[mapping[2]]})"
+    )
+
+
+def _build_color_key_mapping_dialog_choices() -> tuple[list[str], dict[str, str]]:
+    labeled = [_color_key_mapping_dialog_label(mapping) for mapping in ALL_COLOR_KEY_MAPPINGS]
+    choice_to_value = dict(zip(labeled, ALL_COLOR_KEY_MAPPINGS))
+    return [COLOR_KEY_MAPPING_AUTO_CHOICE] + labeled, choice_to_value
+
+
+def _parse_color_key_mapping_choice(choice: str) -> str | None:
+    """Return mapping code, or None when the dialog left 'as assigned'."""
+    choice = str(choice).strip()
+    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
+        return None
+    if choice in COLOR_KEY_MAPPING_CHOICE_TO_VALUE:
+        return COLOR_KEY_MAPPING_CHOICE_TO_VALUE[choice]
+    return _validate_color_key_mapping(choice)
+
+
 def _assigned_color_key_mapping(participant: str) -> str:
     if participant == "test":
         return random.choice(ALL_COLOR_KEY_MAPPINGS)
@@ -182,11 +208,10 @@ def _resolve_color_key_mapping_from_dialog(
 ) -> tuple[str, str, bool]:
     """Return (assigned_mapping, used_mapping, overridden)."""
     assigned = _assigned_color_key_mapping(participant)
-    choice = str(dialog_choice).strip()
-    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
+    parsed = _parse_color_key_mapping_choice(dialog_choice)
+    if parsed is None:
         return assigned, assigned, False
-    used = _validate_color_key_mapping(choice)
-    return assigned, used, used != assigned
+    return assigned, parsed, parsed != assigned
 
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
@@ -358,28 +383,64 @@ COLORS = {
     "black": (0, 0, 0),
 }
 
-COLOR_KEYS = {
-    "red": "n",
-    "blue": "j",
-    "green": "k",
-}
-COLOR_NAMES = list(COLOR_KEYS.keys())
+COLOR_LETTER_TO_NAME = {"r": "red", "b": "blue", "g": "green"}
+STIMULUS_COLOR_NAMES = ["red", "blue", "green"]
+# Fixed NJK key slots (left-to-right in mapping string = n, j, k).
+KEY_SLOT_KEYS = ["n", "j", "k"]
 
 PM_KEY = "d"
 START_KEY = "space"
 QUIT_KEY = "escape"
-ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
-# Self-made response box (serial). Pin IDs map to the same keys as the keyboard.
+# Self-made box: pins are wired to physical keys; color assignment comes from COLOR_KEY_MAPPING.
+SELF_MADE_PIN_TO_KEY = {
+    "6": PM_KEY,
+    "8": "n",
+    "9": "j",
+    "5": "k",
+}
+
+# Populated by apply_color_key_mapping() after the session dialog.
+COLOR_KEYS: dict[str, str] = {}
+key_to_color: dict[str, str] = {}
+ALL_RESPONSE_KEYS: list[str] = []
+
+
+def apply_color_key_mapping(mapping: str) -> None:
+    """
+    Apply a 3-letter mapping (permutation of r,b,g) to response keys.
+
+    Slot order is KEY_SLOT_KEYS: mapping[0] -> n, mapping[1] -> j, mapping[2] -> k.
+    Self-made pins stay on the same keys; only the color each key reports changes.
+    """
+    global COLOR_KEYS, key_to_color, ALL_RESPONSE_KEYS
+    mapping = str(mapping).strip().lower()
+    if len(mapping) != 3 or set(mapping) != set("rbg"):
+        raise SystemExit(f"Invalid color key mapping: {mapping!r}")
+
+    color_keys = {}
+    slot_colors = {}
+    for slot_i, letter in enumerate(mapping):
+        color_name = COLOR_LETTER_TO_NAME[letter]
+        key = KEY_SLOT_KEYS[slot_i]
+        color_keys[color_name] = key
+        slot_colors[key] = color_name
+
+    COLOR_KEYS = color_keys
+    key_to_color = slot_colors
+    ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
+
+
+apply_color_key_mapping(DEFAULT_COLOR_KEY_MAPPING)
+
+COLOR_KEY_MAPPING_DIALOG_CHOICES, COLOR_KEY_MAPPING_CHOICE_TO_VALUE = (
+    _build_color_key_mapping_dialog_choices()
+)
+
+# Self-made response box serial settings.
 CEDRUS_VID = 0x0403
 CEDRUS_PID = 0x6001
 SELF_MADE_BAUDRATE = 115200
-SELF_MADE_PIN_TO_KEY = {
-    "6": PM_KEY,
-    "8": COLOR_KEYS["red"],
-    "9": COLOR_KEYS["blue"],
-    "5": COLOR_KEYS["green"],
-}
 
 PM_REWARD = 5
 
@@ -410,16 +471,30 @@ POSITION_ID_TO_LABEL = {
 def _color_to_key_mapping_metadata(response_device: str | None = None) -> dict[str, str]:
     device = response_device or RESPONSE_DEVICE
     if device == RESPONSE_DEVICE_SELF_MADE:
-        return {
-            "Red": "pin_8 (N)",
-            "Blue": "pin_9 (J)",
-            "Green": "pin_5 (K)",
-            "PM": "pin_6 (D)",
-        }
+        meta = {}
+        for pin, key in SELF_MADE_PIN_TO_KEY.items():
+            if key == PM_KEY:
+                meta["PM"] = f"pin_{pin} ({key.upper()})"
+            else:
+                color_name = key_to_color[key]
+                display = COLOR_ID_TO_DISPLAY[COLOR_NAME_TO_ID[color_name]]
+                meta[display] = f"pin_{pin} ({key.upper()})"
+        return meta
     return {
         COLOR_ID_TO_DISPLAY[COLOR_NAME_TO_ID[color]]: key.upper()
         for color, key in COLOR_KEYS.items()
     }
+
+
+def _self_made_pin_to_color_metadata() -> dict[str, str]:
+    """Pin -> stimulus color name for the active mapping (for metadata sidecar)."""
+    out = {}
+    for pin, key in SELF_MADE_PIN_TO_KEY.items():
+        if key == PM_KEY:
+            out[pin] = "pm"
+        else:
+            out[pin] = key_to_color[key]
+    return out
 
 
 def _tk_ask_string(title: str, message: str) -> str | None:
@@ -553,10 +628,8 @@ def _build_trial_row(
 
     selected_color = None
     selected_position = None
-    if pressed_key in COLOR_KEYS.values():
-        selected_color_name = next(
-            color for color, key in COLOR_KEYS.items() if key == pressed_key
-        )
+    if pressed_key in key_to_color:
+        selected_color_name = key_to_color[pressed_key]
         selected_color = COLOR_NAME_TO_ID[selected_color_name]
         if trial.get("single_center", False):
             if trial["trial_colors"][0] == selected_color_name:
@@ -804,7 +877,10 @@ def _build_metadata(
             "color_key_mapping_assigned": COLOR_KEY_MAPPING_ASSIGNED,
             "color_key_mapping_overridden": COLOR_KEY_MAPPING_OVERRIDDEN,
             "color_key_mapping_description": (
-                "Fixed mapping rbg: red=N, blue=J, green=K on the keyboard."
+                f"Mapping {COLOR_KEY_MAPPING}: "
+                f"{KEY_SLOT_KEYS[0].upper()}={COLOR_LETTER_TO_NAME[COLOR_KEY_MAPPING[0]]}, "
+                f"{KEY_SLOT_KEYS[1].upper()}={COLOR_LETTER_TO_NAME[COLOR_KEY_MAPPING[1]]}, "
+                f"{KEY_SLOT_KEYS[2].upper()}={COLOR_LETTER_TO_NAME[COLOR_KEY_MAPPING[2]]}."
             ),
             "color_map_layout": COLOR_MAP_LAYOUT,
             "color_map_layout_assigned": COLOR_MAP_LAYOUT_ASSIGNED,
@@ -835,7 +911,8 @@ def _build_metadata(
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
             "default_device_name_in_code": DEFAULT_DEVICE_NAME,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
-            "self_made_response_box_pins": dict(SELF_MADE_PIN_TO_KEY),
+            "self_made_response_box_pins": _self_made_pin_to_color_metadata(),
+            "self_made_response_box_pin_to_key": dict(SELF_MADE_PIN_TO_KEY),
             "pm_key": PM_KEY,
             "response_deadline": RESPONSE_DEADLINE,
             "monitor_name": MONITOR_NAME,
@@ -1006,7 +1083,7 @@ def _pool_for_cue_condition(cue_condition: dict, *, center: bool = False) -> lis
     """
     reward_values = tuple(cue_condition["values"])
     condition_label = cue_condition["label"]
-    all_colors = COLOR_NAMES[:]
+    all_colors = STIMULUS_COLOR_NAMES[:]
 
     def make_variant(position_to_color, position_to_reward):
         return {
@@ -1377,7 +1454,10 @@ session_dlg.addField(
     "Color key mapping",
     initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
     choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
-    tip="Default uses DEFAULT_COLOR_KEY_MAPPING from code (random for test). Override only if instructed.",
+    tip=(
+        "as assigned = DEFAULT_COLOR_KEY_MAPPING from code (random for test). "
+        "Or pick one of 6 mappings: each sets N/J/K -> red/blue/green."
+    ),
 )
 session_dlg.addField(
     "Response device",
@@ -1394,7 +1474,7 @@ session_dlg.addField(
     "Color map layout",
     initial=COLOR_MAP_LAYOUT_AUTO_CHOICE,
     choices=COLOR_MAP_LAYOUT_DIALOG_CHOICES,
-    tip="Default uses DEFAULT_COLOR_MAP_LAYOUT from code (NJK keyboard layout).",
+    tip="Only NJK layout is implemented; leave as assigned unless instructed.",
 )
 session_dlg.addField(
     "Monitor name",
@@ -1430,6 +1510,7 @@ EYE_VISION = str(session_dlg.data[8]).strip() or "NA"
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
     _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
 )
+apply_color_key_mapping(COLOR_KEY_MAPPING)
 RESPONSE_DEVICE = session_dlg.data[10]
 DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name_from_dialog(
     session_dlg.data[11]
@@ -1604,9 +1685,8 @@ block_break_text = visual.TextStim(
 keymap_positions = _njk_keymap_positions(
     single_center=DISPLAY_CONFIG.get("single_center", False)
 )
-key_to_color = {key: color for color, key in COLOR_KEYS.items()}
 keymap_stims = []
-for key in ["n", "j", "k"]:
+for key in KEY_SLOT_KEYS:
     pos = keymap_positions[key]
     square = visual.Rect(
         win,
