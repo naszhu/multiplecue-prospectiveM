@@ -18,11 +18,71 @@ from pathlib import Path
 
 from psychopy import gui, visual, core, event, monitors
 
+RESPONSE_DEVICE_KEYBOARD = "keyboard"
+RESPONSE_DEVICE_CEDRUS = "response_box_cedrus"
+RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
+
 # =============================================================================
 # CONFIG: CHANGE THESE VALUES FIRST
 # =============================================================================
 
 EXP_DIR = Path(__file__).resolve().parent
+
+DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6"]
+DEVICE_NAME_AUTO_CHOICE = "as assigned"
+DEVICE_NAME_DIALOG_CHOICES = [DEVICE_NAME_AUTO_CHOICE] + DEVICE_NAME_CHOICES
+############################# TO MODIFY BELOW
+DEBUG_CONFIG = {
+    "enabled": False,
+    "trial_duration": 0.001,
+    "auto_advance_instructions": False,
+    "full_screen": True,
+}
+DEFAULT_PARTICIPANT = "test"
+DEFAULT_MONITOR_NAME = "room1_a4"
+DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_KEYBOARD
+# Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
+DEFAULT_DEVICE_NAME = "KB"
+DEFAULT_COLOR_KEY_MAPPING = "rbg"
+DEFAULT_COLOR_MAP_LAYOUT = "njk"
+############################# TO MODIFY ABOVE
+
+if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
+    raise ValueError(
+        f"DEFAULT_DEVICE_NAME must be one of {DEVICE_NAME_CHOICES!r}; got {DEFAULT_DEVICE_NAME!r}."
+    )
+
+
+CODE_VERSION = "v1-2026-06-15"
+EXPERIMENT_NAME = "PMCP"
+EXPERIMENT_NUMBER = 1002
+DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
+
+ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rbg")})
+COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
+COLOR_KEY_MAPPING_DIALOG_CHOICES = [COLOR_KEY_MAPPING_AUTO_CHOICE] + ALL_COLOR_KEY_MAPPINGS
+COLOR_MAP_LAYOUT_AUTO_CHOICE = "as assigned"
+COLOR_MAP_LAYOUT_DIALOG_CHOICES = [COLOR_MAP_LAYOUT_AUTO_CHOICE, "njk"]
+
+# Set after session dialog.
+COLOR_KEY_MAPPING = DEFAULT_COLOR_KEY_MAPPING
+COLOR_KEY_MAPPING_ASSIGNED = DEFAULT_COLOR_KEY_MAPPING
+COLOR_KEY_MAPPING_OVERRIDDEN = False
+COLOR_MAP_LAYOUT = DEFAULT_COLOR_MAP_LAYOUT
+COLOR_MAP_LAYOUT_ASSIGNED = DEFAULT_COLOR_MAP_LAYOUT
+COLOR_MAP_LAYOUT_OVERRIDDEN = False
+RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
+DEVICE_NAME = DEFAULT_DEVICE_NAME
+DEVICE_NAME_ASSIGNED = DEFAULT_DEVICE_NAME
+DEVICE_NAME_OVERRIDDEN = False
+REPEAT_DATA_NOTE = ""
+REPEAT_REASON = ""
+DATA_FILE_STEM = ""
+AGE = "NA"
+GENDER = "NA"
+PARTICIPATION_DAY = 1
+FIRST_SESSION_OF_DAY = True
+
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
 INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
 INSTRUCTION_FONT_CJK_NAME = "Noto Sans CJK SC"
@@ -67,16 +127,7 @@ MAX_SESSION = (
 )
 MAX_PARTICIPANT_ID = 100
 PARTICIPANT_CHOICES = ["test"] + [str(i) for i in range(1, MAX_PARTICIPANT_ID + 1)]
-DEFAULT_PARTICIPANT = "test"
 
-CODE_VERSION = "v1-2026-06-15"
-EXPERIMENT_NAME = "PMCP"
-EXPERIMENT_NUMBER = 1002
-DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
-RESPONSE_DEVICE = "keyboard"
-DEVICE_NAME = "KB"
-COLOR_KEY_MAPPING = "rbg"
-COLOR_MAP_LAYOUT = "njk"
 RESPONSE_DEADLINE = 2.0
 
 # Warm-up / burn-in hooks (not active in main sessions yet).
@@ -105,16 +156,94 @@ DEFAULT_DISPLAY = {
 }
 SESSION_DISPLAY_OVERRIDES = {}
 
-# Debug: set enabled=True for a 12-trial PM smoke session (6 focal + 6 nonfocal, one per cue).
-DEBUG_CONFIG = {
-    "enabled": False,
-}
+def _validate_color_key_mapping(mapping: str) -> str:
+    mapping = str(mapping).strip().lower()
+    if mapping not in ALL_COLOR_KEY_MAPPINGS:
+        raise SystemExit(f"Invalid color key mapping: {mapping!r}")
+    return mapping
+
+
+def _assigned_color_key_mapping(participant: str) -> str:
+    if participant == "test":
+        return random.choice(ALL_COLOR_KEY_MAPPINGS)
+    return DEFAULT_COLOR_KEY_MAPPING
+
+
+def _resolve_color_key_mapping_from_dialog(
+    participant: str, dialog_choice: str
+) -> tuple[str, str, bool]:
+    """Return (assigned_mapping, used_mapping, overridden)."""
+    assigned = _assigned_color_key_mapping(participant)
+    choice = str(dialog_choice).strip()
+    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
+        return assigned, assigned, False
+    used = _validate_color_key_mapping(choice)
+    return assigned, used, used != assigned
+
+
+def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
+    """Return (assigned_name, used_name, overridden)."""
+    assigned = DEFAULT_DEVICE_NAME
+    choice = str(dialog_choice).strip()
+    if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
+        return assigned, assigned, False
+    if choice not in DEVICE_NAME_CHOICES:
+        raise SystemExit(
+            f"Device name must be '{DEVICE_NAME_AUTO_CHOICE}' or one of {DEVICE_NAME_CHOICES!r}; "
+            f"got {choice!r}."
+        )
+    return assigned, choice, choice != assigned
+
+
+def _resolve_color_map_layout_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
+    """Return (assigned_layout, used_layout, overridden)."""
+    assigned = DEFAULT_COLOR_MAP_LAYOUT
+    choice = str(dialog_choice).strip().lower()
+    if choice == COLOR_MAP_LAYOUT_AUTO_CHOICE.lower():
+        return assigned, assigned, False
+    if choice not in COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]:
+        raise SystemExit(
+            f"Color map layout must be '{COLOR_MAP_LAYOUT_AUTO_CHOICE}' or one of "
+            f"{COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]!r}; got {choice!r}."
+        )
+    return assigned, choice, choice != assigned
+
+
+def _tk_yes_no(title: str, message: str) -> bool:
+    import tkinter as tk
+    from tkinter import messagebox
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    answer = messagebox.askyesno(title, message, parent=root)
+    root.destroy()
+    return bool(answer)
+
+
+def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
+    expected = _suggested_next_session(participant, out_dir)
+    if session == expected:
+        return
+    if not _tk_yes_no(
+        "Confirm session number",
+        (
+            f"From reading your data, it seems that your next session number is {expected}.\n\n"
+            f"You entered session {session}. Are you sure you want to continue?"
+        ),
+    ):
+        raise SystemExit("Session confirmation cancelled.")
+
 
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
 WIN_SIZE_PIX = (1920, 1080)
-FULL_SCREEN = False
 MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
+MONITOR_CHOICES = [f"room1_a{i}" for i in range(1, 11)]
+MONITOR_NAME = DEFAULT_MONITOR_NAME
 USE_UNITS = "deg"
 CIRCLE_EDGES = 200
 
@@ -163,8 +292,6 @@ FOCAL_PM_STYLE = "center_ring"
 
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
-
-MONITOR_NAME = "testmain_demo_monitor"
 
 COLORS = {
     "red": (220, 50, 50),
@@ -403,6 +530,8 @@ def _build_trial_row(
         "Trial": trial_index + 1,
         "WarmUpTrial": trial.get("warm_up", 0),
         "BurnInBlock": trial.get("burn_in_block", 0),
+        "ParticipationDay": PARTICIPATION_DAY,
+        "FirstSessionOfDay": 1 if FIRST_SESSION_OF_DAY else 0,
         "PMPracticeBlock": trial.get("pm_practice_block", 0),
         "SessionPhase": trial.get("session_phase", SESSION_PHASE),
         "CueCondition": trial.get("cue_condition", ""),
@@ -465,6 +594,8 @@ DAT_COLUMN_DESCRIPTIONS = {
     "Trial": "Trial index within the session (1-based).",
     "WarmUpTrial": "1 if warmup trial, 0 if main trial.",
     "BurnInBlock": "1 if trial belongs to the optional burn-in block (block 0); 0 otherwise.",
+    "ParticipationDay": "Participant's self-reported day of participation (1–4) from the session dialog.",
+    "FirstSessionOfDay": "1 if participant reported this as their first session of the day; 0 otherwise.",
     "PMPracticeBlock": "1 if trial belongs to the PM practice block (block -1); 0 otherwise.",
     "SessionPhase": "practice, baseline, focal_pm, or nonfocal_pm.",
     "CueCondition": "Reward-value combination label among cued locations, e.g. (1), (2,3).",
@@ -592,17 +723,26 @@ def _build_metadata(
             "exp_start_time": exp_start_time_str,
             "debug_config_enabled": debug_on,
             "color_key_mapping": COLOR_KEY_MAPPING,
+            "color_key_mapping_assigned": COLOR_KEY_MAPPING_ASSIGNED,
+            "color_key_mapping_overridden": COLOR_KEY_MAPPING_OVERRIDDEN,
             "color_key_mapping_description": (
                 "Fixed mapping rbg: red=N, blue=J, green=K on the keyboard."
             ),
+            "color_map_layout": COLOR_MAP_LAYOUT,
+            "color_map_layout_assigned": COLOR_MAP_LAYOUT_ASSIGNED,
+            "color_map_layout_overridden": COLOR_MAP_LAYOUT_OVERRIDDEN,
             "repeated_run": bool(REPEAT_DATA_NOTE),
             "repeat_reason": REPEAT_REASON,
             "data_file_stem": DATA_FILE_STEM,
             "participant_data_subdirectory": str(PARTICIPANT_DATA_DIR),
             "subject": PARTICIPANT,
+            "age": AGE,
+            "gender": GENDER,
             "handedness": HANDEDNESS,
             "color_vision": COLOR_VISION,
             "eye_vision": EYE_VISION,
+            "participation_day": PARTICIPATION_DAY,
+            "first_session_of_day": "Y" if FIRST_SESSION_OF_DAY else "N",
             "practice": "Y" if SESSION <= N_PRACTICE_SESSIONS else "N",
             "session": SESSION,
             "session_phase": SESSION_PHASE,
@@ -610,9 +750,12 @@ def _build_metadata(
             "number_of_blocks": n_blocks,
             "total_number_of_trials": n_trials_total,
             "reward_money_factor": REWARD_MONEY_FACTOR,
-            "full_screen": "Y" if FULL_SCREEN else "N",
+            "full_screen": "Y" if DEBUG_CONFIG.get("full_screen", False) else "N",
             "response_device": RESPONSE_DEVICE,
             "device_name": DEVICE_NAME,
+            "device_name_assigned": DEVICE_NAME_ASSIGNED,
+            "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
+            "default_device_name_in_code": DEFAULT_DEVICE_NAME,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
             "pm_key": PM_KEY,
             "response_deadline": RESPONSE_DEADLINE,
@@ -1113,13 +1256,28 @@ _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
 )
+PARTICIPATION_DAY_LABEL_TO_NUM = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
 session_dlg = gui.Dlg(title="Prospective MCP Session")
 session_dlg.addField(
     "Participant",
     initial=_dialog_default_participant,
     choices=PARTICIPANT_CHOICES,
 )
+session_dlg.addText("— Participant: fill in the fields below —")
 session_dlg.addField("Session", initial=_dialog_default_session)
+session_dlg.addField(
+    "First session of day?",
+    initial="yes",
+    choices=["yes", "no"],
+)
+session_dlg.addField(
+    "Participation day",
+    initial="1st",
+    choices=["1st", "2nd", "3rd", "4th"],
+    tip="Which day of participation is this?",
+)
+session_dlg.addField("Age", initial="")
+session_dlg.addField("Gender", initial="NA")
 session_dlg.addField(
     "Handedness",
     initial="right",
@@ -1135,6 +1293,35 @@ session_dlg.addField(
     initial="normal",
     choices=["normal", "corrected", "not normal", "unknown"],
 )
+session_dlg.addText("— Experimenter only: do not change unless instructed —")
+session_dlg.addField(
+    "Color key mapping",
+    initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
+    choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
+    tip="Default uses DEFAULT_COLOR_KEY_MAPPING from code (random for test). Override only if instructed.",
+)
+session_dlg.addField(
+    "Response device",
+    initial=DEFAULT_RESPONSE_DEVICE,
+    choices=[RESPONSE_DEVICE_KEYBOARD, RESPONSE_DEVICE_CEDRUS, RESPONSE_DEVICE_SELF_MADE],
+)
+session_dlg.addField(
+    "Device name",
+    initial=DEVICE_NAME_AUTO_CHOICE,
+    choices=DEVICE_NAME_DIALOG_CHOICES,
+    tip="Default uses DEFAULT_DEVICE_NAME from code. Pick KB/RB/SRB1–6 only to override.",
+)
+session_dlg.addField(
+    "Color map layout",
+    initial=COLOR_MAP_LAYOUT_AUTO_CHOICE,
+    choices=COLOR_MAP_LAYOUT_DIALOG_CHOICES,
+    tip="Default uses DEFAULT_COLOR_MAP_LAYOUT from code (NJK keyboard layout).",
+)
+session_dlg.addField(
+    "Monitor name",
+    initial=DEFAULT_MONITOR_NAME,
+    choices=MONITOR_CHOICES,
+)
 session_dlg.show()
 if not session_dlg.OK:
     core.quit()
@@ -1149,9 +1336,33 @@ SESSION = int(session_dlg.data[1])
 if SESSION < 1 or SESSION > MAX_SESSION:
     raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
 
-HANDEDNESS = str(session_dlg.data[2]).strip()
-COLOR_VISION = str(session_dlg.data[3]).strip()
-EYE_VISION = str(session_dlg.data[4]).strip()
+FIRST_SESSION_OF_DAY = str(session_dlg.data[2]).strip().lower() == "yes"
+_participation_day_label = str(session_dlg.data[3]).strip().lower()
+if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
+    raise SystemExit(
+        f"Invalid participation day: {session_dlg.data[3]!r}. Choose 1st, 2nd, 3rd, or 4th."
+    )
+PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
+AGE = str(session_dlg.data[4]).strip() or "NA"
+GENDER = str(session_dlg.data[5]).strip() or "NA"
+HANDEDNESS = str(session_dlg.data[6]).strip() or "NA"
+COLOR_VISION = str(session_dlg.data[7]).strip() or "NA"
+EYE_VISION = str(session_dlg.data[8]).strip() or "NA"
+COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
+    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
+)
+RESPONSE_DEVICE = session_dlg.data[10]
+DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name_from_dialog(
+    session_dlg.data[11]
+)
+COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
+    _resolve_color_map_layout_from_dialog(session_dlg.data[12])
+)
+MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
+
+_confirm_unexpected_session(
+    PARTICIPANT, SESSION, _participant_data_dir(PARTICIPANT)
+)
 
 PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 (
@@ -1201,7 +1412,7 @@ mon.setDistance(MONITOR_DISTANCE_CM)
 
 win = visual.Window(
     size=WIN_SIZE_PIX,
-    fullscr=FULL_SCREEN,
+    fullscr=DEBUG_CONFIG["full_screen"],
     units=USE_UNITS,
     color=BACKGROUND_COLOR,
     colorSpace=COLOR_SPACE,
