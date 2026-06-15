@@ -46,12 +46,11 @@ DEBUG_CONFIG = {
     "simulate_response_box": True,
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "test"
+DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_KEYBOARD
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
 DEFAULT_DEVICE_NAME = "KB"
-DEFAULT_COLOR_KEY_MAPPING = "rbg"
 DEFAULT_COLOR_MAP_LAYOUT = "njk"
 ############################# TO MODIFY ABOVE
 
@@ -65,8 +64,10 @@ CODE_VERSION = "v1-2026-06-15"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
+PARTICIPANT_COLOR_KEY_MAPPING_PATH = EXP_DIR / "participant_color_key_mapping.csv"
 
 ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rbg")})
+_BOOTSTRAP_COLOR_KEY_MAPPING = ALL_COLOR_KEY_MAPPINGS[0]
 COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
 COLOR_KEY_MAPPING_DIALOG_CHOICES: list[str] = []
 COLOR_KEY_MAPPING_CHOICE_TO_VALUE: dict[str, str] = {}
@@ -74,8 +75,8 @@ COLOR_MAP_LAYOUT_AUTO_CHOICE = "as assigned"
 COLOR_MAP_LAYOUT_DIALOG_CHOICES = [COLOR_MAP_LAYOUT_AUTO_CHOICE, "njk"]
 
 # Set after session dialog.
-COLOR_KEY_MAPPING = DEFAULT_COLOR_KEY_MAPPING
-COLOR_KEY_MAPPING_ASSIGNED = DEFAULT_COLOR_KEY_MAPPING
+COLOR_KEY_MAPPING = _BOOTSTRAP_COLOR_KEY_MAPPING
+COLOR_KEY_MAPPING_ASSIGNED = _BOOTSTRAP_COLOR_KEY_MAPPING
 COLOR_KEY_MAPPING_OVERRIDDEN = False
 COLOR_MAP_LAYOUT = DEFAULT_COLOR_MAP_LAYOUT
 COLOR_MAP_LAYOUT_ASSIGNED = DEFAULT_COLOR_MAP_LAYOUT
@@ -172,6 +173,30 @@ def _validate_color_key_mapping(mapping: str) -> str:
     return mapping
 
 
+def _load_participant_color_key_mapping_table() -> dict[str, str]:
+    """Read committed assignment table (read-only; never written by this program)."""
+    path = PARTICIPANT_COLOR_KEY_MAPPING_PATH
+    if not path.is_file():
+        raise SystemExit(f"Missing color-key mapping table: {path}")
+    table: dict[str, str] = {}
+    with open(path, newline="", encoding="utf-8") as fp:
+        reader = csv.DictReader(fp)
+        if (
+            reader.fieldnames is None
+            or "participant_id" not in reader.fieldnames
+            or "color_key_mapping" not in reader.fieldnames
+        ):
+            raise SystemExit(f"Invalid mapping table columns in {path}")
+        for row in reader:
+            pid = str(row["participant_id"]).strip()
+            mapping = _validate_color_key_mapping(row["color_key_mapping"])
+            table[pid] = mapping
+    return table
+
+
+PARTICIPANT_COLOR_KEY_MAPPING = _load_participant_color_key_mapping_table()
+
+
 def _color_key_mapping_dialog_label(mapping: str) -> str:
     """Human-readable dropdown label for one mapping code."""
     return (
@@ -200,7 +225,9 @@ def _parse_color_key_mapping_choice(choice: str) -> str | None:
 def _assigned_color_key_mapping(participant: str) -> str:
     if participant == "test":
         return random.choice(ALL_COLOR_KEY_MAPPINGS)
-    return DEFAULT_COLOR_KEY_MAPPING
+    if participant in PARTICIPANT_COLOR_KEY_MAPPING:
+        return PARTICIPANT_COLOR_KEY_MAPPING[participant]
+    return random.choice(ALL_COLOR_KEY_MAPPINGS)
 
 
 def _resolve_color_key_mapping_from_dialog(
@@ -431,7 +458,7 @@ def apply_color_key_mapping(mapping: str) -> None:
     ALL_RESPONSE_KEYS = list(COLOR_KEYS.values()) + [PM_KEY, QUIT_KEY]
 
 
-apply_color_key_mapping(DEFAULT_COLOR_KEY_MAPPING)
+apply_color_key_mapping(_BOOTSTRAP_COLOR_KEY_MAPPING)
 
 COLOR_KEY_MAPPING_DIALOG_CHOICES, COLOR_KEY_MAPPING_CHOICE_TO_VALUE = (
     _build_color_key_mapping_dialog_choices()
@@ -876,6 +903,7 @@ def _build_metadata(
             "color_key_mapping": COLOR_KEY_MAPPING,
             "color_key_mapping_assigned": COLOR_KEY_MAPPING_ASSIGNED,
             "color_key_mapping_overridden": COLOR_KEY_MAPPING_OVERRIDDEN,
+            "color_key_mapping_table_path": str(PARTICIPANT_COLOR_KEY_MAPPING_PATH),
             "color_key_mapping_description": (
                 f"Mapping {COLOR_KEY_MAPPING}: "
                 f"{KEY_SLOT_KEYS[0].upper()}={COLOR_LETTER_TO_NAME[COLOR_KEY_MAPPING[0]]}, "
@@ -1455,7 +1483,8 @@ session_dlg.addField(
     initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
     choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
     tip=(
-        "as assigned = DEFAULT_COLOR_KEY_MAPPING from code (random for test). "
+        "as assigned = mapping from participant_color_key_mapping.csv for this participant "
+        "(random for test or if id is missing from the table). "
         "Or pick one of 6 mappings: each sets N/J/K -> red/blue/green."
     ),
 )
