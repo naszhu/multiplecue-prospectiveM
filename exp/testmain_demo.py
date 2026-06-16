@@ -43,12 +43,12 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": False,
+    "simulate_response_box": True,
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
-DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
+DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_KEYBOARD
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
 DEFAULT_DEVICE_NAME = "KB"
 DEFAULT_COLOR_MAP_LAYOUT = "njk"
@@ -1725,7 +1725,7 @@ for key in KEY_SLOT_KEYS:
         height=RESPONSE_COLOR_SIZE_DEG,
         pos=pos,
         fillColor=COLORS[key_to_color[key]],
-        fillColorSpace=COLOR_SPACE,
+        colorSpace=COLOR_SPACE,
         lineColor=None,
         units=USE_UNITS,
     )
@@ -1752,7 +1752,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
             pos=pos,
             fillColor=orange,
             lineColor=None,
-            fillColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             edges=64,
         ).draw()
         return
@@ -1764,7 +1764,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
             pos=pos,
             fillColor=None,
             lineColor=orange,
-            lineColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             lineWidth=FOCAL_PM_RING_LINE_WIDTH,
             edges=128,
         ).draw()
@@ -1778,7 +1778,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
             pos=patch_pos,
             fillColor=orange,
             lineColor=None,
-            fillColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             edges=64,
         ).draw()
         return
@@ -1790,7 +1790,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
             pos=pos,
             fillColor=None,
             lineColor=orange,
-            lineColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             lineWidth=FOCAL_PM_HALO_LINE_WIDTH,
             edges=128,
         ).draw()
@@ -1803,7 +1803,7 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
             pos=pos,
             fillColor=orange,
             lineColor=None,
-            fillColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             edges=64,
         ).draw()
         if reward_value > 0:
@@ -2030,9 +2030,8 @@ for trial in trials:
             pos=pos,
             fillColor=COLORS[normal_color],
             lineColor=None if is_nonfocal_pm_target else COLORS["white"],
-            lineColorSpace=COLOR_SPACE if not is_nonfocal_pm_target else None,
             lineWidth=0 if is_nonfocal_pm_target else BORDER_LINE_WIDTH,
-            fillColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             edges=CIRCLE_EDGES,
         )
         inner_circle = visual.Circle(
@@ -2041,7 +2040,7 @@ for trial in trials:
             pos=pos,
             fillColor=COLORS["white"],
             lineColor=None,
-            fillColorSpace=COLOR_SPACE,
+            colorSpace=COLOR_SPACE,
             edges=CIRCLE_EDGES,
         )
         reward_text = visual.TextStim(
@@ -2078,7 +2077,7 @@ for trial in trials:
                     start=(x1, y1),
                     end=(x2, y2),
                     lineColor=COLORS["white"],
-                    lineColorSpace=COLOR_SPACE,
+                    colorSpace=COLOR_SPACE,
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
 
