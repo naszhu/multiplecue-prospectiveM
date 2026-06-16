@@ -151,6 +151,7 @@ PM_PRACTICE_BLOCK_NUMBER = -1
 FIRST_PM_SESSION = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 1
 FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
+SESSION1_INSTRUCTION_LETTER_SIZE_DEG = 0.4  # Shorter height for long session-1 text (match CCRP)
 
 # Future per-practice-session trial-count overrides.
 PRACTICE_SESSION_CONFIG_OVERRIDES = {}
@@ -1910,9 +1911,15 @@ def _set_instruction_display(
     text: str,
     *,
     language: str = "en",
+    use_session1_height: bool = False,
     use_cjk_font: bool = False,
 ) -> None:
     instructions.setText(text)
+    instructions.height = (
+        SESSION1_INSTRUCTION_LETTER_SIZE_DEG
+        if use_session1_height
+        else INSTRUCTION_LETTER_SIZE_DEG
+    )
     if use_cjk_font and INSTRUCTION_FONT_CJK.exists():
         instructions.font = INSTRUCTION_FONT_CJK_NAME
     else:
@@ -1935,6 +1942,7 @@ def _show_session1_first_instruction() -> bool:
         _set_instruction_display(
             INSTRUCTION_LANGUAGE_SWITCHER[language] + body,
             language=language,
+            use_session1_height=True,
             use_cjk_font=True,
         )
         instructions.draw()
