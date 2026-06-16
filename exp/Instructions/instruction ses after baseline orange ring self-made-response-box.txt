@@ -1,0 +1,25 @@
+NEW SESSION — AFTER BASELINE
+
+You have now finished the baseline sessions. From this session on, the task is different.
+
+In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
+
+Keep your left hand on the left half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys. When a PM trial appears, respond using only your left index finger.
+
+On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see this orange ring, press the key under your left index finger instead of a color key. Responding correctly earns 5 bonus points.
+
+__________
+
+ONGOING TASK (same circle choice as before):
+
+Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
+
+Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward using your right index, middle, and ring fingers:
+
+{COLOR_FINGER_LINE}
+
+The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+Press *space* to begin.
