@@ -492,13 +492,13 @@ STIMULUS_COLOR_NAMES = ["red", "blue", "green"]
 # Fixed NJK key slots (left-to-right in mapping string = n, j, k).
 KEY_SLOT_KEYS = ["n", "j", "k"]
 
-PM_KEY = "d"
+PM_KEY = "c"
 START_KEY = "space"
 QUIT_KEY = "escape"
 
 # Self-made box: pins are wired to physical keys; color assignment comes from COLOR_KEY_MAPPING.
 SELF_MADE_PIN_TO_KEY = {
-    "6": PM_KEY,
+    "7": PM_KEY,
     "8": "n",
     "9": "j",
     "5": "k",
