@@ -1371,6 +1371,61 @@ def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list
     return trials
 
 
+def _instruction_device_suffix() -> str:
+    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
+        return " self-made-response-box"
+    return ""
+
+
+def _resolve_instruction_filename(base: str) -> str:
+    """Pick device-specific instruction file when present (e.g. self-made-response-box)."""
+    suffix = _instruction_device_suffix()
+    if suffix:
+        candidate = f"{base}{suffix}.txt"
+        if (INSTRUCTION_DIR / candidate).is_file():
+            return candidate
+    return f"{base}.txt"
+
+
+def _instruction_color_fmt(language: str = "en") -> dict[str, str]:
+    """Placeholders for counterbalanced color-to-finger/key mapping in instructions."""
+    mapping = COLOR_KEY_MAPPING.lower()
+    if language == "zh":
+        localized = {"red": "红色", "blue": "蓝色", "green": "绿色"}
+    elif language == "da":
+        localized = {"red": "rød", "blue": "blå", "green": "grøn"}
+    else:
+        localized = None
+
+    def color_label(letter: str) -> str:
+        name = COLOR_LETTER_TO_NAME[letter]
+        if localized:
+            return localized[name]
+        return name.capitalize()
+
+    c_index = color_label(mapping[0])
+    c_middle = color_label(mapping[1])
+    c_ring = color_label(mapping[2])
+    key_n, key_j, key_k = (k.upper() for k in KEY_SLOT_KEYS)
+    if language == "zh":
+        finger_line = f"  {c_index}（食指）     {c_middle}（中指）     {c_ring}（无名指）"
+    elif language == "da":
+        finger_line = (
+            f"  {c_index} (pegefinger)     {c_middle} (langfinger)     {c_ring} (ringfinger)"
+        )
+    else:
+        finger_line = (
+            f"  {c_index} (index finger)     {c_middle} (middle finger)     {c_ring} (ring finger)"
+        )
+    return {
+        "C_INDEX": c_index,
+        "C_MIDDLE": c_middle,
+        "C_RING": c_ring,
+        "COLOR_KEY_LINE": f"  {c_index} = {key_n}     {c_middle} = {key_j}     {c_ring} = {key_k}",
+        "COLOR_FINGER_LINE": finger_line,
+    }
+
+
 def _load_instruction(filename: str, **fmt) -> str:
     path = INSTRUCTION_DIR / filename
     if not path.exists():
@@ -1385,18 +1440,24 @@ def _load_session1_instruction(language: str = "en") -> str:
     """Load session-1 instruction text for the selected language."""
     if language not in INSTRUCTION_LANGUAGE_SUFFIX:
         raise SystemExit(f"Unsupported instruction language: {language!r}")
-    path = INSTRUCTION_DIR / f"instruction ses 1{INSTRUCTION_LANGUAGE_SUFFIX[language]}.txt"
-    if not path.exists():
-        raise SystemExit(f"Instruction file not found: {path}")
-    return path.read_text(encoding="utf-8").strip()
+    base = f"instruction ses 1{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(language),
+    )
 
 
 def _load_pm_practice_instruction(session: int, participant_id: str) -> str:
     """Instruction at session start when a practice block precedes the main session."""
     cue = _secondary_cue_label(session, participant_id)
     if session == FIRST_PM_SESSION:
-        return _load_instruction(f"instruction practice after baseline {cue}.txt")
-    return _load_instruction(f"instruction practice new cue {cue}.txt")
+        base = f"instruction practice after baseline {cue}"
+    else:
+        base = f"instruction practice new cue {cue}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(),
+    )
 
 
 def _load_session_instruction(session: int, participant_id: str) -> str:
@@ -1404,21 +1465,26 @@ def _load_session_instruction(session: int, participant_id: str) -> str:
     if session == 1:
         return _load_session1_instruction(SESSION1_INSTRUCTION_LANGUAGE)
     if session == 2:
-        return _load_instruction("instruction ses 2.txt")
+        return _load_instruction(_resolve_instruction_filename("instruction ses 2"))
     if session == 3:
-        return _load_instruction("instruction ses 3.txt")
+        return _load_instruction(_resolve_instruction_filename("instruction ses 3"))
     if session == 4:
-        return _load_instruction("instruction ses 4.txt")
+        return _load_instruction(_resolve_instruction_filename("instruction ses 4"))
     if session == 5:
-        return _load_instruction("instruction ses 5.txt")
+        return _load_instruction(_resolve_instruction_filename("instruction ses 5"))
     if session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
-        return _load_instruction("instruction ses 6 onward.txt")
+        return _load_instruction(_resolve_instruction_filename("instruction ses 6 onward"))
     cue = _secondary_cue_label(session, participant_id)
     if session == FIRST_PM_SESSION:
-        return _load_instruction(f"instruction ses after baseline {cue}.txt")
-    if session == FIRST_SECOND_PM_PHASE_SESSION:
-        return _load_instruction(f"instruction ses new cue {cue}.txt")
-    return _load_instruction(f"instruction ses continue {cue}.txt")
+        base = f"instruction ses after baseline {cue}"
+    elif session == FIRST_SECOND_PM_PHASE_SESSION:
+        base = f"instruction ses new cue {cue}"
+    else:
+        base = f"instruction ses continue {cue}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(),
+    )
 
 
 def _load_session_start_instruction(session: int, participant_id: str) -> str:
