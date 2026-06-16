@@ -43,12 +43,12 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": True,
+    "simulate_response_box": False,
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
-DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_KEYBOARD
+DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
 DEFAULT_DEVICE_NAME = "KB"
 DEFAULT_COLOR_MAP_LAYOUT = "njk"
@@ -350,18 +350,13 @@ def _resolve_data_output_paths(
     if not trials_path.exists() and not metadata_path.exists():
         return trials_path, metadata_path, base_stem, "", ""
 
-    if not _tk_yes_no(
-        "Repeated data",
+    reason = _tk_ask_string(
+        "Participant data already exists",
         (
             f"Data already exists for participant {participant}, session {session}.\n\n"
-            f"This will be saved as a repeated run (e.g. {base_stem}(2)). Continue?"
+            f"This will be saved as a repeated run (e.g. {base_stem}(2)). "
+            "To continue anyway, enter a reason below:"
         ),
-    ):
-        raise SystemExit("Repeat run cancelled.")
-
-    reason = _tk_ask_string(
-        "Repeated data reason",
-        "Enter a reason for this repeated run:",
     )
     if reason is None:
         raise SystemExit("Repeat run cancelled.")
