@@ -1,3 +1,15 @@
-Burn-in block.
+RE-ACCLIMATION BLOCK
 
-Press SPACE to begin.
+Before the main session, you will complete a short block of practice trials to help you get back into the rhythm of the task after your break.
+
+The task is the same as in the main session: choose the circle with the highest reward value and press the key that matches its color.
+
+The color-key mapping will be shown on the screen during this block (colored squares below the circles).
+
+These trials are for re-acclimation only and are not counted as part of the experimental data. However, any points you earn will still be added to your accumulated reward and will count toward your final payment.
+
+This block contains 20 trials.
+
+__________
+
+Press *space* to begin.

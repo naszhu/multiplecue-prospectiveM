@@ -140,10 +140,9 @@ PARTICIPANT_CHOICES = ["test"] + [str(i) for i in range(1, MAX_PARTICIPANT_ID + 
 
 RESPONSE_DEADLINE = 2.0
 
-# Warm-up / burn-in hooks (not active in main sessions yet).
+# Warm-up / burn-in (burn-in: session >= 6, first session of day, participation day > 1).
 FIRST_WARMUP_TRIALS = 0
 OTHER_WARMUP_TRIALS = 0
-INCLUDE_BURNIN_BLOCK = False
 BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
 PM_PRACTICE_BLOCK_NUMBER = -1
@@ -855,6 +854,11 @@ def _build_metadata(
             "burnin_block_included": include_burnin_block,
             "burnin_trials_per_block": BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0,
             "burnin_block_number": BURNIN_BLOCK_NUMBER if include_burnin_block else None,
+            "burnin_eligibility_note": (
+                "Burn-in block included when session >= 6, first session of day, and participation day > 1."
+            ),
+            "participation_day": PARTICIPATION_DAY,
+            "first_session_of_day": "Y" if FIRST_SESSION_OF_DAY else "N",
             "pm_practice_block_included": include_pm_practice_block,
             "pm_practice_block_number": PM_PRACTICE_BLOCK_NUMBER if include_pm_practice_block else None,
             "pm_trials_per_block": PM_TRIALS_PER_BLOCK,
@@ -865,6 +869,7 @@ def _build_metadata(
             "total_trials": n_trials_total,
             "single_stimulus_at_center": bool(display_config.get("single_center", False)),
             "color_key_legend_on_screen": bool(display_config.get("show_color_keymap", True)),
+            "color_key_legend_on_burnin_block": True,
             "cue_condition_labels": reward_labels,
             "number_of_reward_conditions": n_reward_conds,
             "main_trials_per_reward_condition_per_block_balanced": reps_per_condition,
@@ -1185,6 +1190,13 @@ def _apply_variant_to_stub(stub: dict, variant: dict, *, single_center: bool = F
     stub["single_center"] = single_center
 
 
+def _should_include_burnin_block(
+    session: int, first_session_of_day: bool, participation_day: int
+) -> bool:
+    """Burn-in block: session 6+, first session of day, participation day > 1 (match CCRP)."""
+    return session >= 6 and first_session_of_day and participation_day > 1
+
+
 def _ongoing_reps_for_cue(cue_index: int, session_phase: str, n_cue_conditions: int) -> int:
     if session_phase in ("focal_pm", "nonfocal_pm"):
         base = ONGOING_PER_BLOCK_PM_PHASE // n_cue_conditions
@@ -1257,6 +1269,44 @@ def _make_block(
     return block_trials
 
 
+def _make_burnin_block(
+    rng: random.Random,
+    session_phase: str,
+    session_number: int,
+) -> list:
+    """20-trial re-acclimation block: ongoing trials only, balanced across cue conditions."""
+    gen = get_session_generation_config(session_number)
+    cue_conditions = gen["cue_conditions"]
+    single_center = gen["single_center"]
+    cue_pools = _cue_pools_for_session(session_number)
+    n_cue = len(cue_conditions)
+    base_reps = BURNIN_TRIALS_PER_BLOCK // n_cue
+    remainder = BURNIN_TRIALS_PER_BLOCK % n_cue
+
+    block_trials = []
+    for cue_index, _cue_condition in enumerate(cue_conditions):
+        pool = cue_pools[cue_index]
+        n_this = base_reps + (1 if cue_index < remainder else 0)
+        for _ in range(n_this):
+            stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": False,
+                "pm_trial_kind": None,
+                "pm_position": None,
+                "warm_up": 1,
+                "burn_in_block": 1,
+                "pm_practice_block": 0,
+            }
+            _apply_variant_to_stub(stub, rng.choice(pool), single_center=single_center)
+            block_trials.append(stub)
+    rng.shuffle(block_trials)
+    if len(block_trials) != BURNIN_TRIALS_PER_BLOCK:
+        raise ValueError(
+            f"Expected {BURNIN_TRIALS_PER_BLOCK} burn-in trials, got {len(block_trials)}."
+        )
+    return block_trials
+
+
 def build_session_trials(
     session_phase: str,
     session_number: int,
@@ -1274,9 +1324,7 @@ def build_session_trials(
     trial_in_session = 0
 
     if include_burnin_block:
-        burnin_block = _make_block(rng, session_phase, session_number, burn_in_block=1)
-        if len(burnin_block) > BURNIN_TRIALS_PER_BLOCK:
-            burnin_block = burnin_block[:BURNIN_TRIALS_PER_BLOCK]
+        burnin_block = _make_burnin_block(rng, session_phase, session_number)
         for trial_in_block, trial in enumerate(burnin_block, start=1):
             trial = dict(trial)
             trial.update(
@@ -1632,7 +1680,9 @@ PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
-INCLUDE_BURNIN = INCLUDE_BURNIN_BLOCK  # hook for future session/day rules
+INCLUDE_BURNIN = _should_include_burnin_block(
+    SESSION, FIRST_SESSION_OF_DAY, PARTICIPATION_DAY
+)
 INCLUDE_PM_PRACTICE = (
     session_needs_pm_practice_block(SESSION) and not DEBUG_CONFIG["enabled"]
 )
@@ -2013,18 +2063,19 @@ def _set_feedback4_text(trial):
 # EXPERIMENT START
 # =============================================================================
 
-if SESSION == 1:
+if INCLUDE_BURNIN:
+    if not _show_instruction_text(
+        _load_instruction(_resolve_instruction_filename("instruction burnin intro"))
+    ):
+        win.close()
+        core.quit()
+elif SESSION == 1:
     if not _show_session1_first_instruction():
         win.close()
         core.quit()
 elif not _show_instruction_text(_load_session_start_instruction(SESSION, PARTICIPANT)):
     win.close()
     core.quit()
-
-if INCLUDE_BURNIN:
-    if not _show_instruction_text(_load_instruction("instruction burnin intro.txt")):
-        win.close()
-        core.quit()
 
 cum_reward = 0.0
 prev_block = None
@@ -2047,8 +2098,16 @@ for trial in trials:
             ):
                 completed_normally = False
                 break
+        elif prev_block == BURNIN_BLOCK_NUMBER and current_block == PM_PRACTICE_BLOCK_NUMBER:
+            if not _show_instruction_text(
+                _load_pm_practice_instruction(SESSION, PARTICIPANT)
+            ):
+                completed_normally = False
+                break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_text(_load_instruction("instruction burnin.txt")):
+            if not _show_instruction_text(
+                _load_session_instruction(SESSION, PARTICIPANT)
+            ):
                 completed_normally = False
                 break
         else:
@@ -2158,9 +2217,9 @@ for trial in trials:
                 ).draw()
 
     show_keymap = (
-        DISPLAY_CONFIG.get("show_color_keymap", True)
-        and not trial.get("pm_practice_block")
-    )
+        bool(trial.get("burn_in_block"))
+        or DISPLAY_CONFIG.get("show_color_keymap", True)
+    ) and not trial.get("pm_practice_block")
     if show_keymap:
         for square, label in keymap_stims:
             square.draw()
