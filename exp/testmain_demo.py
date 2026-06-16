@@ -1729,15 +1729,17 @@ for key in KEY_SLOT_KEYS:
         lineColor=None,
         units=USE_UNITS,
     )
-    label = visual.TextStim(
-        win,
-        text=key.upper(),
-        pos=pos,
-        height=KEYMAP_TEXT_HEIGHT_DEG,
-        color=COLORS["white"],
-        colorSpace=COLOR_SPACE,
-        units=USE_UNITS,
-    )
+    label = None
+    if RESPONSE_DEVICE != RESPONSE_DEVICE_SELF_MADE:
+        label = visual.TextStim(
+            win,
+            text=key.upper(),
+            pos=pos,
+            height=KEYMAP_TEXT_HEIGHT_DEG,
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            units=USE_UNITS,
+        )
     keymap_stims.append((square, label))
 
 
@@ -2088,7 +2090,8 @@ for trial in trials:
     if show_keymap:
         for square, label in keymap_stims:
             square.draw()
-            label.draw()
+            if label is not None:
+                label.draw()
 
     if serial_response_box is not None:
         serial_response_box.reset_input_buffer()
