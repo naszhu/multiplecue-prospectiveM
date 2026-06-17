@@ -43,7 +43,7 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": True,
+    "simulate_response_box": False,
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
@@ -60,7 +60,7 @@ if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
     )
 
 
-CODE_VERSION = "v1-2026-06-15"
+CODE_VERSION = "v1-2026-06-17"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
