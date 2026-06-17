@@ -43,12 +43,12 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": False,
+    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
-DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_KEYBOARD
+DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
 DEFAULT_DEVICE_NAME = "KB"
 DEFAULT_COLOR_MAP_LAYOUT = "njk"
@@ -939,6 +939,7 @@ def _build_metadata(
             "reward_money_factor": REWARD_MONEY_FACTOR,
             "full_screen": "Y" if DEBUG_CONFIG.get("full_screen", False) else "N",
             "response_device": RESPONSE_DEVICE,
+            "simulate_response_box": simulate_response_box,
             "device_name": DEVICE_NAME,
             "device_name_assigned": DEVICE_NAME_ASSIGNED,
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
@@ -1709,15 +1710,15 @@ for _t in trials:
 
 serial_response_box = None
 simulate_response_box = (
-    DEBUG_CONFIG["enabled"]
-    and DEBUG_CONFIG.get("simulate_response_box", True)
+    DEBUG_CONFIG.get("simulate_response_box", False)
     and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
 )
 if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
     if simulate_response_box:
         print(
-            f"DEBUG: simulating {RESPONSE_DEVICE_SELF_MADE}; "
-            "serial response box will not be opened."
+            f"Simulating {RESPONSE_DEVICE_SELF_MADE}; serial port will not be opened. "
+            f"Use keyboard: {', '.join(k.upper() for k in KEY_SLOT_KEYS)} for colors, "
+            f"{PM_KEY.upper()} for PM."
         )
     else:
         serial_response_box = _open_self_made_response_box()
