@@ -152,7 +152,15 @@ FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
 SESSION1_INSTRUCTION_LETTER_SIZE_DEG = 0.4  # Shorter height for long session-1 text (match CCRP)
 
-# Future per-practice-session trial-count overrides.
+# Practice sessions 1–5: block count and trials/block (match CCRP trial_number_design.md).
+PRACTICE_SESSION_TRIAL_CONFIG = {
+    1: {"n_blocks": 10, "n_per_block": 20},
+    2: {"n_blocks": 10, "n_per_block": 20},
+    3: {"n_blocks": 4, "n_per_block": 50},
+    4: {"n_blocks": 4, "n_per_block": 30},
+    5: {"n_blocks": 4, "n_per_block": 50},
+}
+# Optional per-session overrides on top of PRACTICE_SESSION_TRIAL_CONFIG.
 PRACTICE_SESSION_CONFIG_OVERRIDES = {}
 
 # Future per-session welcome instruction paths (session number -> filename in Instructions/).
@@ -1066,6 +1074,17 @@ def get_session_display_config(session: int) -> dict:
     return cfg
 
 
+def get_session_trial_config(session: int) -> dict:
+    """Block count and main trials per block (CCRP-matched for practice; 9×44 from session 6)."""
+    if session <= N_PRACTICE_SESSIONS:
+        base = PRACTICE_SESSION_TRIAL_CONFIG.get(
+            session,
+            {"n_blocks": N_BLOCKS, "n_per_block": TRIALS_PER_BLOCK},
+        )
+        return {**base, **PRACTICE_SESSION_CONFIG_OVERRIDES.get(session, {})}
+    return {"n_blocks": N_BLOCKS, "n_per_block": TRIALS_PER_BLOCK}
+
+
 def get_session_generation_config(session: int) -> dict:
     """Trial-generation options per session (cue conditions, center layout)."""
     if session == 1:
@@ -1198,13 +1217,19 @@ def _should_include_burnin_block(
     return session >= 6 and first_session_of_day and participation_day > 1
 
 
-def _ongoing_reps_for_cue(cue_index: int, session_phase: str, n_cue_conditions: int) -> int:
+def _ongoing_reps_for_cue(
+    cue_index: int,
+    session_phase: str,
+    n_cue_conditions: int,
+    trials_per_block: int,
+) -> int:
     if session_phase in ("focal_pm", "nonfocal_pm"):
-        base = ONGOING_PER_BLOCK_PM_PHASE // n_cue_conditions
-        remainder = ONGOING_PER_BLOCK_PM_PHASE % n_cue_conditions
+        ongoing_per_block = trials_per_block - n_cue_conditions
+        base = ongoing_per_block // n_cue_conditions
+        remainder = ongoing_per_block % n_cue_conditions
     else:
-        base = TRIALS_PER_BLOCK // n_cue_conditions
-        remainder = TRIALS_PER_BLOCK % n_cue_conditions
+        base = trials_per_block // n_cue_conditions
+        remainder = trials_per_block % n_cue_conditions
     return base + (1 if cue_index < remainder else 0)
 
 
@@ -1223,8 +1248,11 @@ def _make_block(
     *,
     burn_in_block: int = 0,
     pm_practice_block: int = 0,
+    trials_per_block: int | None = None,
 ) -> list:
     """Build one block: cue-balanced stubs, pool draw per stub, within-block shuffle."""
+    if trials_per_block is None:
+        trials_per_block = get_session_trial_config(session_number)["n_per_block"]
     gen = get_session_generation_config(session_number)
     cue_conditions = gen["cue_conditions"]
     single_center = gen["single_center"]
@@ -1238,7 +1266,9 @@ def _make_block(
 
     for cue_index, _cue_condition in enumerate(cue_conditions):
         pool = cue_pools[cue_index]
-        n_ongoing = _ongoing_reps_for_cue(cue_index, session_phase, n_cue_conditions)
+        n_ongoing = _ongoing_reps_for_cue(
+            cue_index, session_phase, n_cue_conditions, trials_per_block
+        )
 
         if has_pm:
             pm_stub = {
@@ -1267,6 +1297,12 @@ def _make_block(
             block_trials.append(ongoing_stub)
 
     rng.shuffle(block_trials)
+    expected = trials_per_block
+    if len(block_trials) != expected:
+        raise ValueError(
+            f"Expected {expected} trials in block, got {len(block_trials)} "
+            f"for session {session_number}, phase {session_phase!r}."
+        )
     return block_trials
 
 
@@ -1321,6 +1357,9 @@ def build_session_trials(
     All random draws use a seeded RNG (participant + session).
     """
     rng = random.Random(f"{participant_id}-{session_number}")
+    trial_cfg = get_session_trial_config(session_number)
+    n_blocks = trial_cfg["n_blocks"]
+    trials_per_block = trial_cfg["n_per_block"]
     trials = []
     trial_in_session = 0
 
@@ -1343,6 +1382,7 @@ def build_session_trials(
             session_number,
             burn_in_block=0,
             pm_practice_block=1,
+            trials_per_block=TRIALS_PER_BLOCK,
         )
         for trial_in_block, trial in enumerate(practice_block, start=1):
             trial = dict(trial)
@@ -1354,8 +1394,14 @@ def build_session_trials(
             trials.append(trial)
             trial_in_session += 1
 
-    for block_number in range(1, N_BLOCKS + 1):
-        block_trials = _make_block(rng, session_phase, session_number, burn_in_block=0)
+    for block_number in range(1, n_blocks + 1):
+        block_trials = _make_block(
+            rng,
+            session_phase,
+            session_number,
+            burn_in_block=0,
+            trials_per_block=trials_per_block,
+        )
         for trial_in_block, trial in enumerate(block_trials, start=1):
             trial = dict(trial)
             trial.update(
@@ -1369,7 +1415,7 @@ def build_session_trials(
     expected = (
         (BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0)
         + (TRIALS_PER_BLOCK if include_pm_practice_block else 0)
-        + N_BLOCKS * TRIALS_PER_BLOCK
+        + n_blocks * trials_per_block
     )
     if len(trials) != expected:
         raise ValueError(
@@ -1701,7 +1747,9 @@ else:
         include_pm_practice_block=INCLUDE_PM_PRACTICE,
     )
 N_TRIALS = len(trials)
-SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else N_BLOCKS
+SESSION_TRIAL_CONFIG = get_session_trial_config(SESSION)
+SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else SESSION_TRIAL_CONFIG["n_blocks"]
+SESSION_TRIALS_PER_BLOCK = SESSION_TRIAL_CONFIG["n_per_block"]
 _block_trial_counts = {}
 for _t in trials:
     _block_trial_counts[_t["block"]] = _t["trial_in_block"]
@@ -2024,7 +2072,7 @@ def _trials_in_block(block_number):
         return BURNIN_TRIALS_PER_BLOCK
     if block_number == PM_PRACTICE_BLOCK_NUMBER:
         return TRIALS_PER_BLOCK
-    return _block_trial_counts.get(block_number, TRIALS_PER_BLOCK)
+    return _block_trial_counts.get(block_number, SESSION_TRIALS_PER_BLOCK)
 
 
 def _set_feedback4_text(trial):
@@ -2382,7 +2430,7 @@ for trial in trials:
                 exp_start_time_str=exp_start_time_str,
                 n_blocks=SESSION_N_BLOCKS,
                 n_trials_total=N_TRIALS,
-                n_trials_per_block=TRIALS_PER_BLOCK,
+                n_trials_per_block=SESSION_TRIALS_PER_BLOCK,
                 include_burnin_block=INCLUDE_BURNIN,
                 include_pm_practice_block=INCLUDE_PM_PRACTICE,
                 display_config=DISPLAY_CONFIG,
