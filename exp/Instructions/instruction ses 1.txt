@@ -1,0 +1,27 @@
+PRACTICE 1
+
+In the following, you will see a fixation cross in the center of the screen. Please always fixate this point when you start a trial.
+
+Upon pressing *space*, a colored circle with a digit from 1 to 3 will appear in the center of the screen.
+
+__________
+
+Your task is to report the color of the circle by pressing one of three keys: N, J, and K.
+
+Rest your right hand naturally on the keyboard, with your index finger on N, your middle finger on J, and your ring finger on K.
+
+The keys are associated with three colors: Red (N), Blue (J), and Green (K). This color-key mapping will never change across the whole experiment. The mapping is also indicated by the colored squares shown below the circle.
+
+__________
+
+You will earn points by reporting the color of the circle correctly while also responding as quickly as possible.
+
+The digit 1 allows you to earn 1 point, and so on until a maximum reward of 3 points per trial.
+
+Your collected points will be translated into a monetary reward (0.05 DKK per point). After each trial, you will see how many points you have earned in that trial relative to what you could have earned, along with the amount of money in DKK that you have obtained.
+
+__________
+
+Remember to fixate the cross at the center at the start of each trial.
+
+Press *space* to begin.
