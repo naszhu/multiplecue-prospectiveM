@@ -1,0 +1,15 @@
+SESSION
+
+Continue with the same task as in your recent sessions.
+
+On some trials, one circle will have a DASHED WHITE OUTLINE. When you see it, press C with your left middle finger instead of the color key.
+
+Otherwise, choose the circle with the highest reward digit:
+
+  Red = N     Blue = J     Green = K
+
+The color-key mapping is not shown on the screen.
+
+__________
+
+Press *space* to begin.
