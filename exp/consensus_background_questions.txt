@@ -1,0 +1,34 @@
+Consensus Briefing: MCP + PM Experiment Background and Questions
+
+Purpose of the current experiment
+- The project tests how prospective memory (PM) intentions compete with ongoing value-based intention selection in a multiple-cue paradigm (MCP/CCRP).
+- The central theoretical goal is to evaluate whether PM costs are best explained by:
+  1) shared-capacity competition inside MIS,
+  2) threshold/control adjustments outside MIS, or
+  3) a hybrid account.
+- Key comparison: baseline vs focal PM vs nonfocal PM, with both choice and RT outcomes.
+
+Core design summary (from methods draft)
+- Ongoing task: on each trial, participants see 3 colored circles arranged in a triangle and choose by color key (N/J/K mapping).
+- Reward structure: single-cue trials (one rewarded option) and dual-cue trials (two rewarded options with different values).
+- PM manipulation:
+  - Focal PM cue: one circle turns orange.
+  - Nonfocal PM cue: one circle gets a dashed outline.
+  - PM response is spacebar (instead of ongoing color response) when PM cue appears.
+- Within-subject blocked design:
+  - Baseline block(s): no PM task.
+  - Focal PM block(s).
+  - Nonfocal PM block(s).
+  - PM cue frequency in PM blocks is 15%.
+- Main dependent measures:
+  - Ongoing-task accuracy and RT,
+  - PM hit rate and false alarms,
+  - PM monitoring cost (non-PM trial RT in PM blocks minus matched baseline RT).
+
+Training/time context for interpreting keyboard-mapping effects
+- Methods draft states a long protocol (~8-9 total hours) across multiple sessions and extensive training before main PM testing.
+- User’s current protocol concern also emphasizes very long training exposure (up to many sessions; user notes 17 sessions in current planning), which may reduce reliance on visible key aids over time.
+
+Why this matters for my next search
+- I need evidence-based guidance on whether physically adding color-key mapping to keyboard keys changes behavior (beneficial scaffolding vs attentional distraction/confound), especially in long multi-session protocols with substantial training.
+
