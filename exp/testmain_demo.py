@@ -795,6 +795,7 @@ def _build_trial_row(
     session_elapsed_sec: float,
     trial_note: str = "",
     sync_ok: int = 1,
+    srb_firmware_version: str = "",
 ) -> dict:
     """Build one CSV row matching CCRP columns plus PM fields."""
     colors = [position_to_color_id[i] or 0 for i in range(N_POSITIONS)]
@@ -910,6 +911,7 @@ def _build_trial_row(
         "EndTrialTime": round(end_trial_time * 1000, 2),
         "TrialWallClockTime": trial_wall_clock_str,
         "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "SRBFirmwareVersion": srb_firmware_version,
         "SyncOK": sync_ok,
         "Note": trial_note,
     }
@@ -975,6 +977,10 @@ DAT_COLUMN_DESCRIPTIONS = {
     "EndTrialTime": "Trial clock time (ms) at end of feedback phase.",
     "TrialWallClockTime": "Local wall-clock date and time when this trial row was logged.",
     "SessionElapsedSec": "Seconds since session timing start (monotonic clock).",
+    "SRBFirmwareVersion": (
+        "Firmware version string reported by the self-made response box when queried with 'I' "
+        "(e.g. 'v1.1'). Empty for keyboard or Cedrus sessions, or if auto-detection was skipped."
+    ),
     "SyncOK": (
         "1 if the Arduino acknowledged the trial-start 'S' signal with 'A' (RT timing verified); "
         "0 if no ack was received (RT may be from the wrong trial); "
@@ -2776,6 +2782,7 @@ for trial in trials:
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
         sync_ok=trial_sync_ok,
+        srb_firmware_version=SRB_FIRMWARE_VERSION or "",
         trial_note=" | ".join(p for p in [
             "too_fast_rt" if too_fast else "",
             "srb_sync_failed" if trial_sync_ok == 0 else "",
