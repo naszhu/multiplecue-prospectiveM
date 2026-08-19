@@ -388,6 +388,21 @@ def _infer_participation_day_and_first_session(
         return label_map[day], "yes"
 
 
+def _load_last_session_demographics(participant: str, out_dir: Path) -> dict:
+    """Return demographics dict from the most recent metadata, or empty dict if none found."""
+    meta = _most_recent_metadata(participant, out_dir)
+    if meta is None:
+        return {}
+    run_meta = meta.get("run_and_display_metadata", {})
+    return {
+        "age": run_meta.get("age", "NA"),
+        "gender": run_meta.get("gender", "NA"),
+        "handedness": run_meta.get("handedness", "right"),
+        "color_vision": run_meta.get("color_vision", "normal"),
+        "eye_vision": run_meta.get("eye_vision", "normal"),
+    }
+
+
 def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
     expected = _suggested_next_session(participant, out_dir)
     if session == expected:
@@ -1663,6 +1678,10 @@ _dialog_default_participation_day, _dialog_default_first_session = (
         _participant_data_dir(_dialog_default_participant),
     )
 )
+_dialog_default_demographics = _load_last_session_demographics(
+    _dialog_default_participant,
+    _participant_data_dir(_dialog_default_participant),
+)
 session_dlg = gui.Dlg(title="Prospective MCP Session")
 session_dlg.addField(
     "Participant",
@@ -1682,21 +1701,21 @@ session_dlg.addField(
     choices=["1st", "2nd", "3rd", "4th"],
     tip="Which day of participation is this? (auto-derived from data; change if incorrect)",
 )
-session_dlg.addField("Age", initial="")
-session_dlg.addField("Gender", initial="NA")
+session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
+session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
 session_dlg.addField(
     "Handedness",
-    initial="right",
+    initial=_dialog_default_demographics.get("handedness", "right"),
     choices=["right", "left", "ambidextrous", "other"],
 )
 session_dlg.addField(
     "Color vision",
-    initial="normal",
+    initial=_dialog_default_demographics.get("color_vision", "normal"),
     choices=["normal", "not normal", "unknown"],
 )
 session_dlg.addField(
     "Eye vision",
-    initial="normal",
+    initial=_dialog_default_demographics.get("eye_vision", "normal"),
     choices=["normal", "corrected", "not normal", "unknown"],
 )
 session_dlg.addText("— Experimenter only: do not change unless instructed —")
