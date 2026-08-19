@@ -46,7 +46,7 @@ DEBUG_CONFIG = {
     "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "10"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
@@ -1691,36 +1691,71 @@ session_dlg.addField(
     choices=PARTICIPANT_CHOICES,
 )
 session_dlg.addField("Session", initial=_dialog_default_session)
-session_dlg.addText("— Participant: required on first session —")
-session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
-session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
-session_dlg.addText("— From last session (auto-filled — change only if needed) —")
-session_dlg.addField(
-    "Handedness",
-    initial=_dialog_default_demographics.get("handedness", "right"),
-    choices=["right", "left", "ambidextrous", "other"],
-)
-session_dlg.addField(
-    "Color vision",
-    initial=_dialog_default_demographics.get("color_vision", "normal"),
-    choices=["normal", "not normal", "unknown"],
-)
-session_dlg.addField(
-    "Eye vision",
-    initial=_dialog_default_demographics.get("eye_vision", "normal"),
-    choices=["normal", "corrected", "not normal", "unknown"],
-)
-session_dlg.addField(
-    "First session of day?",
-    initial=_dialog_default_first_session,
-    choices=["yes", "no"],
-)
-session_dlg.addField(
-    "Participation day",
-    initial=_dialog_default_participation_day,
-    choices=["1st", "2nd", "3rd", "4th"],
-    tip="Auto-derived from data; change if incorrect.",
-)
+
+_has_prior_data = bool(_dialog_default_demographics)
+
+if _has_prior_data:
+    session_dlg.addText("— Participant: required on first session —")
+    session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
+    session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
+    session_dlg.addText("— From last session (auto-filled — change only if needed) —")
+    session_dlg.addField(
+        "Handedness",
+        initial=_dialog_default_demographics.get("handedness", "right"),
+        choices=["right", "left", "ambidextrous", "other"],
+    )
+    session_dlg.addField(
+        "Color vision",
+        initial=_dialog_default_demographics.get("color_vision", "normal"),
+        choices=["normal", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "Eye vision",
+        initial=_dialog_default_demographics.get("eye_vision", "normal"),
+        choices=["normal", "corrected", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "First session of day?",
+        initial=_dialog_default_first_session,
+        choices=["yes", "no"],
+    )
+    session_dlg.addField(
+        "Participation day",
+        initial=_dialog_default_participation_day,
+        choices=["1st", "2nd", "3rd", "4th"],
+        tip="Auto-derived from data; change if incorrect.",
+    )
+else:
+    session_dlg.addText("— Participant: please fill in all fields below —")
+    session_dlg.addField("Age", initial="")
+    session_dlg.addField("Gender", initial="NA")
+    session_dlg.addField(
+        "Handedness",
+        initial="right",
+        choices=["right", "left", "ambidextrous", "other"],
+    )
+    session_dlg.addField(
+        "Color vision",
+        initial="normal",
+        choices=["normal", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "Eye vision",
+        initial="normal",
+        choices=["normal", "corrected", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "First session of day?",
+        initial=_dialog_default_first_session,
+        choices=["yes", "no"],
+    )
+    session_dlg.addField(
+        "Participation day",
+        initial=_dialog_default_participation_day,
+        choices=["1st", "2nd", "3rd", "4th"],
+        tip="Which day of participation is this?",
+    )
+
 session_dlg.addText("— Experimenter only: do not change unless instructed —")
 session_dlg.addField(
     "Color key mapping",
