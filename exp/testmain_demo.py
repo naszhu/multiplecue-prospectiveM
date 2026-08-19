@@ -92,6 +92,7 @@ AGE = "NA"
 GENDER = "NA"
 PARTICIPATION_DAY = 1
 FIRST_SESSION_OF_DAY = True
+SPECIAL_SESSION_NOTE = ""
 
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
 INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
@@ -1783,6 +1784,11 @@ session_dlg.addField(
     initial=DEFAULT_MONITOR_NAME,
     choices=MONITOR_CHOICES,
 )
+session_dlg.addField(
+    "Special session note",
+    initial="",
+    tip="Optional free-text note for this session (e.g. technical issues, participant remarks). Leave blank if nothing to note.",
+)
 session_dlg.show()
 if not session_dlg.OK:
     core.quit()
@@ -1824,6 +1830,7 @@ COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
     _resolve_color_map_layout_from_dialog(session_dlg.data[12])
 )
 MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
+SPECIAL_SESSION_NOTE = str(session_dlg.data[14]).strip()
 
 # Post-dialog checks (order matters):
 # 1) unexpected session number, 2) repeated data for same participant+session
@@ -2605,11 +2612,11 @@ for trial in trials:
         trial_start_jitter_time_ms=trial_start_jitter_time_ms,
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
-        trial_note=(
-            "too_fast_rt"
-            if too_fast
-            else (REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "")
-        ),
+        trial_note=" | ".join(p for p in [
+            "too_fast_rt" if too_fast else "",
+            REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
+            SPECIAL_SESSION_NOTE,
+        ] if p),
     )
 
     if csv_columns is None:
