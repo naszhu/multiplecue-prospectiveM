@@ -314,6 +314,18 @@ def _participant_data_dir(participant: str) -> Path:
     return DATA_OUT_DIR / f"subj{participant}"
 
 
+def _session_log_path(participant: str, out_dir: Path) -> Path:
+    return out_dir / f"PMCP_subj{participant}_session_log.txt"
+
+
+def _append_session_log(log_path: Path, lines: list[str]) -> None:
+    """Append one or more lines to the session log, creating the file if needed."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        for line in lines:
+            f.write(line + "\n")
+
+
 def _max_completed_session(participant: str, out_dir: Path) -> int | None:
     """Highest session number found for this participant, or None."""
     prefix = f"PMCP_subj{participant}_ses"
@@ -2323,6 +2335,10 @@ csv_columns = None
 exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
+_append_session_log(_log_path, [
+    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} started.",
+])
 print(f"Trial data will be saved to: {_out_trials_path}")
 print(f"Metadata will be saved to: {_out_metadata_path}")
 
@@ -2657,6 +2673,11 @@ if completed_normally:
     end_text.draw()
     win.flip()
     event.waitKeys()
+
+_end_status = "completed normally" if completed_normally else "interrupted"
+_append_session_log(_log_path, [
+    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} ended ({_end_status}).",
+])
 
 win.close()
 if serial_response_box is not None:
