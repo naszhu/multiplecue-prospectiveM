@@ -794,6 +794,7 @@ def _build_trial_row(
     trial_wall_clock_str: str,
     session_elapsed_sec: float,
     trial_note: str = "",
+    sync_ok: int = 1,
 ) -> dict:
     """Build one CSV row matching CCRP columns plus PM fields."""
     colors = [position_to_color_id[i] or 0 for i in range(N_POSITIONS)]
@@ -909,6 +910,7 @@ def _build_trial_row(
         "EndTrialTime": round(end_trial_time * 1000, 2),
         "TrialWallClockTime": trial_wall_clock_str,
         "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "SyncOK": sync_ok,
         "Note": trial_note,
     }
 
@@ -973,6 +975,11 @@ DAT_COLUMN_DESCRIPTIONS = {
     "EndTrialTime": "Trial clock time (ms) at end of feedback phase.",
     "TrialWallClockTime": "Local wall-clock date and time when this trial row was logged.",
     "SessionElapsedSec": "Seconds since session timing start (monotonic clock).",
+    "SyncOK": (
+        "1 if the Arduino acknowledged the trial-start 'S' signal with 'A' (RT timing verified); "
+        "0 if no ack was received (RT may be from the wrong trial); "
+        "1 for keyboard trials (no Arduino sync needed)."
+    ),
     "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
 }
 
@@ -2617,9 +2624,17 @@ for trial in trials:
     trial_clock.reset()
     win.flip()
     cue_time = trial_clock.getTime()
+    trial_sync_ok = 1  # 1 = confirmed; 0 = ack missing; keyboard always 1
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         serial_response_box.write(b"S")
         serial_response_box.flush()
+        # Expect 'A' acknowledgement immediately (firmware sends it before starting timer)
+        _ack = serial_response_box.read(1)
+        if _ack != b"A":
+            trial_sync_ok = 0
+            _sync_warn = f"no_ack trial {trial_index + 1} (got {_ack!r})"
+            print(f"WARNING: SRB sync ack missing: {_sync_warn}")
+            _append_session_log(_log_path, [f"  WARNING: SRB sync ack missing: {_sync_warn}"])
 
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         self_made_response = _wait_for_self_made_response_box(
@@ -2760,8 +2775,10 @@ for trial in trials:
         trial_start_jitter_time_ms=trial_start_jitter_time_ms,
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
+        sync_ok=trial_sync_ok,
         trial_note=" | ".join(p for p in [
             "too_fast_rt" if too_fast else "",
+            "srb_sync_failed" if trial_sync_ok == 0 else "",
             REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
             SPECIAL_SESSION_NOTE,
             f"srb_detection_warning: {SRB_DETECTION_WARNING}" if SRB_DETECTION_WARNING else "",
