@@ -1714,17 +1714,6 @@ if _has_prior_data:
         initial=_dialog_default_demographics.get("eye_vision", "normal"),
         choices=["normal", "corrected", "not normal", "unknown"],
     )
-    session_dlg.addField(
-        "First session of day?",
-        initial=_dialog_default_first_session,
-        choices=["yes", "no"],
-    )
-    session_dlg.addField(
-        "Participation day",
-        initial=_dialog_default_participation_day,
-        choices=["1st", "2nd", "3rd", "4th"],
-        tip="Auto-derived from data; change if incorrect.",
-    )
 else:
     session_dlg.addText("— Participant: please fill in all fields below —")
     session_dlg.addField("Age", initial="")
@@ -1744,19 +1733,20 @@ else:
         initial="normal",
         choices=["normal", "corrected", "not normal", "unknown"],
     )
-    session_dlg.addField(
-        "First session of day?",
-        initial=_dialog_default_first_session,
-        choices=["yes", "no"],
-    )
-    session_dlg.addField(
-        "Participation day",
-        initial=_dialog_default_participation_day,
-        choices=["1st", "2nd", "3rd", "4th"],
-        tip="Which day of participation is this?",
-    )
 
 session_dlg.addText("— Experimenter only: do not change unless instructed —")
+session_dlg.addField(
+    "First session of day?",
+    initial=_dialog_default_first_session,
+    choices=["yes", "no"],
+    tip="Auto-derived from data; change if incorrect.",
+)
+session_dlg.addField(
+    "Participation day",
+    initial=_dialog_default_participation_day,
+    choices=["1st", "2nd", "3rd", "4th"],
+    tip="Auto-derived from data; change if incorrect.",
+)
 session_dlg.addField(
     "Color key mapping",
     initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
