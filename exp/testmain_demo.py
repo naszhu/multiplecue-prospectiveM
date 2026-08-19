@@ -85,6 +85,8 @@ RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
 DEVICE_NAME = DEFAULT_DEVICE_NAME
 DEVICE_NAME_ASSIGNED = DEFAULT_DEVICE_NAME
 DEVICE_NAME_OVERRIDDEN = False
+SRB_FIRMWARE_VERSION: str | None = None
+SRB_DETECTION_WARNING: str | None = None
 REPEAT_DATA_NOTE = ""
 REPEAT_REASON = ""
 DATA_FILE_STEM = ""
@@ -253,7 +255,11 @@ def _resolve_color_key_mapping_from_dialog(
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
     """Return (assigned_name, used_name, overridden)."""
-    assigned = DEFAULT_DEVICE_NAME
+    assigned = (
+        _srb_detected_device_name
+        if _srb_detected_device_name is not None
+        else DEFAULT_DEVICE_NAME
+    )
     choice = str(dialog_choice).strip()
     if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
         return assigned, assigned, False
@@ -477,6 +483,65 @@ def _find_self_made_response_box_port() -> str:
             if port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
                 return port.device
     return "/dev/ttyACM0"
+
+
+def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
+    """Open a port briefly, send 'I', and parse the 'SRBX,vY.Z' reply.
+
+    Returns (device_name, firmware_version) or (None, None) on any failure.
+    Closes the port before returning.
+    """
+    if serial is None:
+        return None, None
+    try:
+        box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.5)
+        time.sleep(2.0)
+        box.reset_input_buffer()
+        box.write(b"I")
+        box.flush()
+        reply = box.readline().decode("ascii", errors="ignore").strip()
+        box.close()
+        if not reply:
+            return None, None
+        parts = reply.split(",")
+        device_name = parts[0].strip() if parts else None
+        firmware_version = parts[1].strip() if len(parts) > 1 else None
+        if device_name not in DEVICE_NAME_CHOICES:
+            return None, firmware_version
+        return device_name, firmware_version
+    except Exception:
+        return None, None
+
+
+def _auto_detect_srb_device() -> tuple[str | None, str | None, str | None, str | None]:
+    """Scan serial ports for a self-made response box that responds to 'I'.
+
+    Returns (port_name, device_name, firmware_version, warning_message).
+    warning_message is non-empty if detection failed or the reply was unexpected.
+    """
+    if list_ports is None or serial is None:
+        return None, None, None, "pyserial not available; SRB auto-detection skipped"
+
+    candidates = [
+        port.device
+        for port in list_ports.comports()
+        if not (port.vid == CEDRUS_VID and port.pid == CEDRUS_PID)
+        and port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB"))
+    ]
+
+    if not candidates:
+        return None, None, None, "No SRB candidate serial ports found"
+
+    for port_name in candidates:
+        device_name, firmware_version = _query_srb_identity(port_name)
+        if device_name is not None:
+            return port_name, device_name, firmware_version, None
+
+    # Found ports but none responded with a recognised device ID
+    return candidates[0], None, None, (
+        f"SRB on {candidates[0]} did not respond to identity query; "
+        "firmware may not support 'I' command"
+    )
 
 
 def _open_self_made_response_box():
@@ -1038,6 +1103,8 @@ def _build_metadata(
             "device_name_assigned": DEVICE_NAME_ASSIGNED,
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
             "default_device_name_in_code": DEFAULT_DEVICE_NAME,
+            "srb_firmware_version": SRB_FIRMWARE_VERSION,
+            "srb_detection_warning": SRB_DETECTION_WARNING,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
             "self_made_response_box_pins": _self_made_pin_to_color_metadata(),
             "self_made_response_box_pin_to_key": dict(SELF_MADE_PIN_TO_KEY),
@@ -1680,6 +1747,36 @@ def _load_session_start_instruction(session: int, participant_id: str) -> str:
 # SESSION DIALOG
 # =============================================================================
 
+# Auto-detect self-made response box identity before the dialog
+_srb_detected_port: str | None = None
+_srb_detected_device_name: str | None = None
+_srb_detected_firmware: str | None = None
+_srb_detection_warning: str | None = None
+
+if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get("simulate_response_box"):
+    (
+        _srb_detected_port,
+        _srb_detected_device_name,
+        _srb_detected_firmware,
+        _srb_detection_warning,
+    ) = _auto_detect_srb_device()
+    SRB_FIRMWARE_VERSION = _srb_detected_firmware
+    SRB_DETECTION_WARNING = _srb_detection_warning
+    if _srb_detected_device_name:
+        print(
+            f"SRB auto-detected: {_srb_detected_device_name} "
+            f"(firmware {_srb_detected_firmware}) on {_srb_detected_port}"
+        )
+    elif _srb_detection_warning:
+        print(f"SRB detection warning: {_srb_detection_warning}")
+
+# Dialog default for Device name: use auto-detected SRB name if available, else fall back to config
+_dialog_default_device_name = (
+    _srb_detected_device_name
+    if _srb_detected_device_name is not None
+    else DEVICE_NAME_AUTO_CHOICE
+)
+
 _dialog_default_participant = (
     DEFAULT_PARTICIPANT if DEFAULT_PARTICIPANT in PARTICIPANT_CHOICES else "1"
 )
@@ -1781,9 +1878,9 @@ session_dlg.addField(
 )
 session_dlg.addField(
     "Device name",
-    initial=DEVICE_NAME_AUTO_CHOICE,
+    initial=_dialog_default_device_name,
     choices=DEVICE_NAME_DIALOG_CHOICES,
-    tip="Default uses DEFAULT_DEVICE_NAME from code. Pick KB/RB/SRB1–6 only to override.",
+    tip="Auto-detected from box if firmware supports 'I' command. Override only if incorrect.",
 )
 session_dlg.addField(
     "Color map layout",
@@ -1872,6 +1969,12 @@ if _has_prior_data:
         )
 if SPECIAL_SESSION_NOTE:
     _SESSION_START_LOG_EXTRAS.append(f"  Special session note: {SPECIAL_SESSION_NOTE}")
+if SRB_DETECTION_WARNING:
+    _SESSION_START_LOG_EXTRAS.append(f"  SRB detection warning: {SRB_DETECTION_WARNING}")
+elif _srb_detected_device_name:
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  SRB auto-detected: {_srb_detected_device_name}, firmware {_srb_detected_firmware}"
+    )
 
 # Post-dialog checks (order matters):
 # 1) unexpected session number, 2) repeated data for same participant+session
@@ -2661,6 +2764,7 @@ for trial in trials:
             "too_fast_rt" if too_fast else "",
             REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
             SPECIAL_SESSION_NOTE,
+            f"srb_detection_warning: {SRB_DETECTION_WARNING}" if SRB_DETECTION_WARNING else "",
         ] if p),
     )
 
