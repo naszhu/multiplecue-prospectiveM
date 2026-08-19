@@ -2075,21 +2075,35 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
 
 
 def _confirm_exit_or_continue():
-    esc_confirm_text.draw()
-    win.flip()
-    keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY])
-    return bool(keys and keys[0] == QUIT_KEY)
-
-
-def _wait_space_or_exit():
     while True:
-        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY])
+        esc_confirm_text.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY], maxWait=0.5)
+        if keys:
+            return bool(keys[0] == QUIT_KEY)
+
+
+def _wait_space_or_exit(redraw_stim=None):
+    """Wait for SPACE (return True) or ESC (return False).
+
+    If *redraw_stim* is given it is redrawn and flipped every ~0.5 s so the
+    display stays active during long pauses (prevents screen blank on Linux).
+    """
+    while True:
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
+        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
         if not keys:
             continue
         if keys[0] == START_KEY:
             return True
         if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
             return False
+        # After returning from exit confirm, redraw stim and continue waiting
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
 
 
 def _set_instruction_display(
@@ -2115,7 +2129,7 @@ def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: s
     _set_instruction_display(text, language=language, use_cjk_font=use_cjk_font)
     instructions.draw()
     win.flip()
-    return _wait_space_or_exit()
+    return _wait_space_or_exit(redraw_stim=instructions)
 
 
 def _show_session1_first_instruction() -> bool:
@@ -2133,8 +2147,11 @@ def _show_session1_first_instruction() -> bool:
         instructions.draw()
         win.flip()
         while True:
-            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"])
+            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
             if not keys:
+                # Keepalive redraw so the display stays active during long waits
+                instructions.draw()
+                win.flip()
                 continue
             key = keys[0]
             if key == "c" and language != "zh":
@@ -2151,6 +2168,8 @@ def _show_session1_first_instruction() -> bool:
                 return True
             if key == QUIT_KEY and _confirm_exit_or_continue():
                 return False
+            instructions.draw()
+            win.flip()
 
 
 def _trials_in_block(block_number):
@@ -2256,7 +2275,7 @@ for trial in trials:
             )
             block_break_text.draw()
             win.flip()
-            if not _wait_space_or_exit():
+            if not _wait_space_or_exit(redraw_stim=block_break_text):
                 completed_normally = False
                 break
 
