@@ -377,15 +377,16 @@ def _infer_participation_day_and_first_session(
     except Exception:
         return "1st", "yes"
 
-    label_map = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}
+    label_map = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th",
+                 6: "6th", 7: "7th", 8: "8th", 9: "9th", 10: "10th"}
 
     if last_date == today:
         # Same day → still the same participation day, not the first session
-        day = max(1, min(last_day, 4))
+        day = max(1, min(last_day, 10))
         return label_map[day], "no"
     else:
         # New calendar day → participation day increments
-        day = max(1, min(last_day + 1, 4))
+        day = max(1, min(last_day + 1, 10))
         return label_map[day], "yes"
 
 
@@ -1673,7 +1674,11 @@ _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
 )
-PARTICIPATION_DAY_LABEL_TO_NUM = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+PARTICIPATION_DAY_LABEL_TO_NUM = {
+    "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+    "6th": 6, "7th": 7, "8th": 8, "9th": 9, "10th": 10,
+}
+PARTICIPATION_DAY_CHOICES = list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())
 _dialog_default_participation_day, _dialog_default_first_session = (
     _infer_participation_day_and_first_session(
         _dialog_default_participant,
@@ -1743,7 +1748,7 @@ session_dlg.addField(
 session_dlg.addField(
     "Participation day",
     initial=_dialog_default_participation_day,
-    choices=["1st", "2nd", "3rd", "4th"],
+    choices=PARTICIPATION_DAY_CHOICES,
     tip="Auto-derived from data; change if incorrect.",
 )
 session_dlg.addField(
@@ -1803,7 +1808,7 @@ FIRST_SESSION_OF_DAY = str(session_dlg.data[7]).strip().lower() == "yes"
 _participation_day_label = str(session_dlg.data[8]).strip().lower()
 if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     raise SystemExit(
-        f"Invalid participation day: {session_dlg.data[8]!r}. Choose 1st, 2nd, 3rd, or 4th."
+        f"Invalid participation day: {session_dlg.data[8]!r}. Choose one of: {list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())}."
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
 # Section 3: experimenter only
