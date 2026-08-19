@@ -46,7 +46,7 @@ DEBUG_CONFIG = {
     "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "10"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "12"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
@@ -1695,10 +1695,9 @@ session_dlg.addField("Session", initial=_dialog_default_session)
 _has_prior_data = bool(_dialog_default_demographics)
 
 if _has_prior_data:
-    session_dlg.addText("— Participant: required on first session —")
+    session_dlg.addText("— From last session (auto-filled — change only if needed) —")
     session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
     session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
-    session_dlg.addText("— From last session (auto-filled — change only if needed) —")
     session_dlg.addField(
         "Handedness",
         initial=_dialog_default_demographics.get("handedness", "right"),
