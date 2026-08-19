@@ -1688,21 +1688,11 @@ session_dlg.addField(
     initial=_dialog_default_participant,
     choices=PARTICIPANT_CHOICES,
 )
-session_dlg.addText("— Participant: fill in the fields below —")
 session_dlg.addField("Session", initial=_dialog_default_session)
-session_dlg.addField(
-    "First session of day?",
-    initial=_dialog_default_first_session,
-    choices=["yes", "no"],
-)
-session_dlg.addField(
-    "Participation day",
-    initial=_dialog_default_participation_day,
-    choices=["1st", "2nd", "3rd", "4th"],
-    tip="Which day of participation is this? (auto-derived from data; change if incorrect)",
-)
+session_dlg.addText("— Participant: required on first session —")
 session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
 session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
+session_dlg.addText("— From last session (auto-filled — change only if needed) —")
 session_dlg.addField(
     "Handedness",
     initial=_dialog_default_demographics.get("handedness", "right"),
@@ -1717,6 +1707,17 @@ session_dlg.addField(
     "Eye vision",
     initial=_dialog_default_demographics.get("eye_vision", "normal"),
     choices=["normal", "corrected", "not normal", "unknown"],
+)
+session_dlg.addField(
+    "First session of day?",
+    initial=_dialog_default_first_session,
+    choices=["yes", "no"],
+)
+session_dlg.addField(
+    "Participation day",
+    initial=_dialog_default_participation_day,
+    choices=["1st", "2nd", "3rd", "4th"],
+    tip="Auto-derived from data; change if incorrect.",
 )
 session_dlg.addText("— Experimenter only: do not change unless instructed —")
 session_dlg.addField(
@@ -1765,18 +1766,21 @@ SESSION = int(session_dlg.data[1])
 if SESSION < 1 or SESSION > MAX_SESSION:
     raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
 
-FIRST_SESSION_OF_DAY = str(session_dlg.data[2]).strip().lower() == "yes"
-_participation_day_label = str(session_dlg.data[3]).strip().lower()
+# Section 1: required on first session
+AGE = str(session_dlg.data[2]).strip() or "NA"
+GENDER = str(session_dlg.data[3]).strip() or "NA"
+# Section 2: auto-filled from last session
+HANDEDNESS = str(session_dlg.data[4]).strip() or "NA"
+COLOR_VISION = str(session_dlg.data[5]).strip() or "NA"
+EYE_VISION = str(session_dlg.data[6]).strip() or "NA"
+FIRST_SESSION_OF_DAY = str(session_dlg.data[7]).strip().lower() == "yes"
+_participation_day_label = str(session_dlg.data[8]).strip().lower()
 if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     raise SystemExit(
-        f"Invalid participation day: {session_dlg.data[3]!r}. Choose 1st, 2nd, 3rd, or 4th."
+        f"Invalid participation day: {session_dlg.data[8]!r}. Choose 1st, 2nd, 3rd, or 4th."
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
-AGE = str(session_dlg.data[4]).strip() or "NA"
-GENDER = str(session_dlg.data[5]).strip() or "NA"
-HANDEDNESS = str(session_dlg.data[6]).strip() or "NA"
-COLOR_VISION = str(session_dlg.data[7]).strip() or "NA"
-EYE_VISION = str(session_dlg.data[8]).strip() or "NA"
+# Section 3: experimenter only
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
     _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
 )
