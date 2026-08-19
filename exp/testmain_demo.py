@@ -333,6 +333,61 @@ def _suggested_next_session(participant: str, out_dir: Path) -> int:
     return 1 if max_session is None else max_session + 1
 
 
+def _most_recent_metadata(participant: str, out_dir: Path) -> dict | None:
+    """Return the parsed JSON of the most recent metadata file, or None."""
+    if not out_dir.is_dir():
+        return None
+    prefix = f"PMCP_subj{participant}_ses"
+    candidates = []
+    for path in out_dir.iterdir():
+        if path.is_file() and path.name.startswith(prefix) and path.name.endswith("_metadata.json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                start_str = data.get("run_and_display_metadata", {}).get("exp_start_time", "")
+                candidates.append((start_str, data))
+            except Exception:
+                continue
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[-1][1]
+
+
+def _infer_participation_day_and_first_session(
+    participant: str, out_dir: Path
+) -> tuple[str, str]:
+    """Return (participation_day_label, first_session_of_day_choice) for dialog defaults.
+
+    participation_day_label: '1st' | '2nd' | '3rd' | '4th'
+    first_session_of_day_choice: 'yes' | 'no'
+    """
+    meta = _most_recent_metadata(participant, out_dir)
+    if meta is None:
+        return "1st", "yes"
+
+    run_meta = meta.get("run_and_display_metadata", {})
+    last_day = int(run_meta.get("participation_day", 1))
+    last_start_str = run_meta.get("exp_start_time", "")
+
+    today = datetime.today().date()
+    try:
+        last_date = datetime.strptime(last_start_str[:10], "%Y-%m-%d").date()
+    except Exception:
+        return "1st", "yes"
+
+    label_map = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}
+
+    if last_date == today:
+        # Same day → still the same participation day, not the first session
+        day = max(1, min(last_day, 4))
+        return label_map[day], "no"
+    else:
+        # New calendar day → participation day increments
+        day = max(1, min(last_day + 1, 4))
+        return label_map[day], "yes"
+
+
 def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
     expected = _suggested_next_session(participant, out_dir)
     if session == expected:
@@ -1602,6 +1657,12 @@ _dialog_default_session = _suggested_next_session(
     _participant_data_dir(_dialog_default_participant),
 )
 PARTICIPATION_DAY_LABEL_TO_NUM = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+_dialog_default_participation_day, _dialog_default_first_session = (
+    _infer_participation_day_and_first_session(
+        _dialog_default_participant,
+        _participant_data_dir(_dialog_default_participant),
+    )
+)
 session_dlg = gui.Dlg(title="Prospective MCP Session")
 session_dlg.addField(
     "Participant",
@@ -1612,14 +1673,14 @@ session_dlg.addText("— Participant: fill in the fields below —")
 session_dlg.addField("Session", initial=_dialog_default_session)
 session_dlg.addField(
     "First session of day?",
-    initial="yes",
+    initial=_dialog_default_first_session,
     choices=["yes", "no"],
 )
 session_dlg.addField(
     "Participation day",
-    initial="1st",
+    initial=_dialog_default_participation_day,
     choices=["1st", "2nd", "3rd", "4th"],
-    tip="Which day of participation is this?",
+    tip="Which day of participation is this? (auto-derived from data; change if incorrect)",
 )
 session_dlg.addField("Age", initial="")
 session_dlg.addField("Gender", initial="NA")
