@@ -1844,6 +1844,35 @@ COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
 MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
 SPECIAL_SESSION_NOTE = str(session_dlg.data[14]).strip()
 
+# Collect log entries for any defaults that were manually changed
+_SESSION_START_LOG_EXTRAS: list[str] = []
+if _has_prior_data:
+    _label_map_rev = {v: k for k, v in PARTICIPATION_DAY_LABEL_TO_NUM.items()}
+    for _field, _default_key, _parsed_val in [
+        ("Age",          "age",          AGE),
+        ("Gender",       "gender",       GENDER),
+        ("Handedness",   "handedness",   HANDEDNESS),
+        ("Color vision", "color_vision", COLOR_VISION),
+        ("Eye vision",   "eye_vision",   EYE_VISION),
+    ]:
+        _default_val = str(_dialog_default_demographics.get(_default_key, "")).strip()
+        if str(_parsed_val).strip() != _default_val:
+            _SESSION_START_LOG_EXTRAS.append(
+                f"  {_field} changed from default: '{_default_val}' -> '{_parsed_val}'"
+            )
+    _fsod_str = "yes" if FIRST_SESSION_OF_DAY else "no"
+    if _fsod_str != _dialog_default_first_session:
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  First session of day changed from default: '{_dialog_default_first_session}' -> '{_fsod_str}'"
+        )
+    _part_day_label = _label_map_rev.get(PARTICIPATION_DAY, str(PARTICIPATION_DAY))
+    if _part_day_label != _dialog_default_participation_day:
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Participation day changed from default: '{_dialog_default_participation_day}' -> '{_part_day_label}'"
+        )
+if SPECIAL_SESSION_NOTE:
+    _SESSION_START_LOG_EXTRAS.append(f"  Special session note: {SPECIAL_SESSION_NOTE}")
+
 # Post-dialog checks (order matters):
 # 1) unexpected session number, 2) repeated data for same participant+session
 _confirm_unexpected_session(
@@ -2338,7 +2367,7 @@ PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
 _append_session_log(_log_path, [
     f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} started.",
-])
+] + _SESSION_START_LOG_EXTRAS)
 print(f"Trial data will be saved to: {_out_trials_path}")
 print(f"Metadata will be saved to: {_out_metadata_path}")
 
