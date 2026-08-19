@@ -2132,10 +2132,54 @@ def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: s
     return _wait_space_or_exit(redraw_stim=instructions)
 
 
+_LANGUAGE_SELECTION_TEXT = (
+    "Please select your language / 请选择语言 / Vælg venligst dit sprog\n\n"
+    "Press  E  for English\n"
+    "按      C  选择中文\n"
+    "Tryk   D  for dansk"
+)
+
+
+def _show_language_selection_screen() -> str | None:
+    """Show a language-selection screen before the session-1 instructions.
+
+    Returns the chosen language code ('en', 'zh', 'da'), or None if the
+    participant quit.  The selection is stored in SESSION1_INSTRUCTION_LANGUAGE.
+    """
+    global SESSION1_INSTRUCTION_LANGUAGE
+    _set_instruction_display(
+        _LANGUAGE_SELECTION_TEXT,
+        language="en",
+        use_session1_height=False,
+        use_cjk_font=True,
+    )
+    while True:
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=["e", "c", "d", QUIT_KEY], maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == "e":
+            SESSION1_INSTRUCTION_LANGUAGE = "en"
+            return "en"
+        if key == "c":
+            SESSION1_INSTRUCTION_LANGUAGE = "zh"
+            return "zh"
+        if key == "d":
+            SESSION1_INSTRUCTION_LANGUAGE = "da"
+            return "da"
+        if key == QUIT_KEY and _confirm_exit_or_continue():
+            return None
+        # If confirm was cancelled, redraw and keep waiting
+        instructions.draw()
+        win.flip()
+
+
 def _show_session1_first_instruction() -> bool:
     """Session 1 opening instruction with English / 中文 / dansk switching."""
     global SESSION1_INSTRUCTION_LANGUAGE
-    language = "en"
+    language = SESSION1_INSTRUCTION_LANGUAGE  # respect pre-selection from language screen
     while True:
         body = _load_session1_instruction(language)
         _set_instruction_display(
@@ -2224,6 +2268,9 @@ if INCLUDE_BURNIN:
         win.close()
         core.quit()
 elif SESSION == 1:
+    if _show_language_selection_screen() is None:
+        win.close()
+        core.quit()
     if not _show_session1_first_instruction():
         win.close()
         core.quit()
