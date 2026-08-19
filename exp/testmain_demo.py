@@ -112,6 +112,7 @@ FIXATION_TIME = 0.5
 MAX_RESPONSE_TIME = 3.0
 FEEDBACK_WAIT_TIME = 1.5
 ITI_TIME = 0.3
+MIN_RT_MS = 100  # Responses faster than this are treated as accidental button-holds
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
@@ -633,6 +634,7 @@ FEEDBACK3_POS_DEG = (0, -140 * STIM_FACTOR)
 FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
 FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
+TOO_FAST_TEXT = "TOO FAST! (0 points)"
 
 COLOR_NAME_TO_ID = {"red": 1, "blue": 2, "green": 3}
 COLOR_ID_TO_DISPLAY = {1: "Red", 2: "Blue", 3: "Green"}
@@ -2410,7 +2412,16 @@ for trial in trials:
         rt = MAX_RESPONSE_TIME * 1000
         rt_computer_clock_ms = rt
 
+    too_fast = (
+        not timed_out
+        and rt_computer_clock_ms is not None
+        and rt_computer_clock_ms < MIN_RT_MS
+    )
+
     if timed_out:
+        max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
+        actual_reward = 0
+    elif too_fast:
         max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
         actual_reward = 0
     elif is_pm_trial:
@@ -2454,6 +2465,9 @@ for trial in trials:
     if timed_out:
         feedback1.setText(TOO_SLOW_TEXT)
         feedback1.bold = True
+    elif too_fast:
+        feedback1.setText(TOO_FAST_TEXT)
+        feedback1.bold = True
     else:
         feedback1.setText(str(actual_reward) + " / " + str(max_reward))
         feedback1.bold = False
@@ -2496,7 +2510,11 @@ for trial in trials:
         trial_start_jitter_time_ms=trial_start_jitter_time_ms,
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
-        trial_note=REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
+        trial_note=(
+            "too_fast_rt"
+            if too_fast
+            else (REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "")
+        ),
     )
 
     if csv_columns is None:
