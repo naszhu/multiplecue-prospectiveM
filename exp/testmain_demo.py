@@ -42,8 +42,10 @@ COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
     "enabled": True,
-    "trial_duration": 0.001,
-    "auto_advance_instructions": True,
+    "trial_duration": 0.001,  # Fixation / stimulus / response / feedback / ITI when auto_advance_trials.
+    "auto_advance_trials": True,  # Auto-answer and flash through trials; stop at the next instruction.
+    "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
+    "skip_survey": False,  # Skip the 5 end-of-session survey questions.
     "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": False,
 }
@@ -51,6 +53,27 @@ DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fil
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 ############################# TO MODIFY ABOVE
+
+
+def _debug_enabled() -> bool:
+    return bool(DEBUG_CONFIG.get("enabled"))
+
+
+def _debug_flag(name: str, default: bool = False) -> bool:
+    return _debug_enabled() and bool(DEBUG_CONFIG.get(name, default))
+
+
+def _debug_wait_s() -> float:
+    """Shortest configured wait; 0 is allowed (one frame flip still happens)."""
+    try:
+        return max(0.0, float(DEBUG_CONFIG.get("trial_duration", 0.001)))
+    except (TypeError, ValueError):
+        return 0.001
+
+
+def _debug_fast_wait() -> None:
+    core.wait(_debug_wait_s())
+
 
 CODE_VERSION = "v2-2026-08-19"
 EXPERIMENT_NAME = "PMCP"
@@ -1096,6 +1119,10 @@ def _build_metadata(
             "code_version": CODE_VERSION,
             "exp_start_time": exp_start_time_str,
             "debug_config_enabled": debug_on,
+            "debug_auto_advance_trials": _debug_flag("auto_advance_trials"),
+            "debug_auto_advance_instructions": _debug_flag("auto_advance_instructions"),
+            "debug_skip_survey": _debug_flag("skip_survey"),
+            "debug_trial_duration_s": _debug_wait_s() if debug_on else None,
             "color_key_mapping": COLOR_KEY_MAPPING,
             "color_key_mapping_assigned": COLOR_KEY_MAPPING_ASSIGNED,
             "color_key_mapping_overridden": COLOR_KEY_MAPPING_OVERRIDDEN,
@@ -2246,6 +2273,14 @@ simulate_response_box = (
     DEBUG_CONFIG.get("simulate_response_box", False)
     and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
 )
+if _debug_enabled():
+    print(
+        "DEBUG: "
+        f"auto_advance_trials={_debug_flag('auto_advance_trials')} "
+        f"auto_advance_instructions={_debug_flag('auto_advance_instructions')} "
+        f"skip_survey={_debug_flag('skip_survey')} "
+        f"trial_duration={_debug_wait_s()}s"
+    )
 if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
     if simulate_response_box:
         print(
@@ -2574,6 +2609,12 @@ def _poll_experimenter_burnin_skip() -> bool:
 
 def _wait_space_or_exit(redraw_stim=None, *, allow_experimenter_skip: bool = False):
     """Wait for SPACE (return True), ESC (return False), or optional experimenter skip."""
+    if _debug_flag("auto_advance_instructions"):
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
+        _debug_fast_wait()
+        return True
     while True:
         if redraw_stim is not None:
             redraw_stim.draw()
@@ -2644,6 +2685,10 @@ def _show_instruction_with_language_switch(
         )
         instructions.draw()
         win.flip()
+        if _debug_flag("auto_advance_instructions"):
+            SESSION1_INSTRUCTION_LANGUAGE = language
+            _debug_fast_wait()
+            return True
         while True:
             keys = event.waitKeys(keyList=key_list, maxWait=0.5)
             if not keys:
@@ -2716,6 +2761,10 @@ def _show_language_selection_screen() -> str | None:
     while True:
         instructions.draw()
         win.flip()
+        if _debug_flag("auto_advance_instructions"):
+            SESSION1_INSTRUCTION_LANGUAGE = "en"
+            _debug_fast_wait()
+            return "en"
         keys = event.waitKeys(keyList=["e", "c", "d", QUIT_KEY], maxWait=0.5)
         if not keys:
             continue
@@ -2780,6 +2829,22 @@ def _set_feedback4_text(trial):
         + " / "
         + str(n_in_block)
     )
+
+
+def _debug_auto_trial_key(trial: dict) -> str:
+    """Legal key so debug auto-advance does not time out: PM key on PM trials, else best-reward color."""
+    if trial.get("is_pm_trial"):
+        return PM_KEY
+    rewards = trial.get("reward_values") or []
+    colors = trial.get("trial_colors") or []
+    if rewards and colors and len(rewards) == len(colors):
+        best_i = max(range(len(rewards)), key=lambda i: rewards[i])
+        key = COLOR_KEYS.get(colors[best_i])
+        if key:
+            return key
+    if COLOR_KEYS:
+        return next(iter(COLOR_KEYS.values()))
+    return KEY_SLOT_KEYS[0]
 
 
 def _load_ishihara_plate_defs() -> list[dict]:
@@ -3286,11 +3351,13 @@ for trial in trials:
                 break
 
     trial_colors = trial["trial_colors"]
-    trial_start_jitter_time_ms = FIXATION_TIME * 1000
+    debug_auto_trial = _debug_flag("auto_advance_trials")
+    trial_wait_s = _debug_wait_s() if debug_auto_trial else FIXATION_TIME
+    trial_start_jitter_time_ms = trial_wait_s * 1000
 
     fixation.draw()
     win.flip()
-    core.wait(FIXATION_TIME)
+    core.wait(trial_wait_s)
 
     event.clearEvents()
     trial_clock = core.Clock()
@@ -3386,14 +3453,18 @@ for trial in trials:
             if label is not None:
                 label.draw()
 
-    if serial_response_box is not None:
+    if serial_response_box is not None and not debug_auto_trial:
         serial_response_box.reset_input_buffer()
 
     trial_clock.reset()
     win.flip()
     cue_time = trial_clock.getTime()
     trial_sync_ok = 1  # 1 = confirmed; 0 = ack missing; keyboard always 1
-    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+    if (
+        not debug_auto_trial
+        and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
+        and serial_response_box is not None
+    ):
         serial_response_box.write(b"S")
         serial_response_box.flush()
         # Expect 'A' acknowledgement immediately (firmware sends it before starting timer)
@@ -3404,7 +3475,10 @@ for trial in trials:
             print(f"WARNING: SRB sync ack missing: {_sync_warn}")
             _append_session_log(_log_path, [f"  WARNING: SRB sync ack missing: {_sync_warn}"])
 
-    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+    if debug_auto_trial:
+        _debug_fast_wait()
+        keys = [(_debug_auto_trial_key(trial), trial_clock.getTime())]
+    elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         self_made_response = _wait_for_self_made_response_box(
             serial_response_box, trial_clock, MAX_RESPONSE_TIME
         )
@@ -3446,7 +3520,8 @@ for trial in trials:
         rt_computer_clock_ms = rt
 
     too_fast = (
-        not timed_out
+        not debug_auto_trial
+        and not timed_out
         and rt_computer_clock_ms is not None
         and rt_computer_clock_ms < MIN_RT_MS
     )
@@ -3515,10 +3590,10 @@ for trial in trials:
     feedback4.draw()
     fixation.draw()
     win.flip()
-    core.wait(FEEDBACK_WAIT_TIME)
+    core.wait(_debug_wait_s() if debug_auto_trial else FEEDBACK_WAIT_TIME)
 
     win.flip()
-    core.wait(ITI_TIME)
+    core.wait(_debug_wait_s() if debug_auto_trial else ITI_TIME)
     end_trial_time = trial_clock.getTime()
 
     now = datetime.now()
@@ -3546,6 +3621,7 @@ for trial in trials:
         sync_ok=trial_sync_ok,
         srb_firmware_version=SRB_FIRMWARE_VERSION or "",
         trial_note=" | ".join(p for p in [
+            "debug_auto_response" if debug_auto_trial else "",
             "too_fast_rt" if too_fast else "",
             "srb_sync_failed" if trial_sync_ok == 0 else "",
             REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
@@ -3589,16 +3665,22 @@ for trial in trials:
 # =============================================================================
 
 if completed_normally:
-    trial_index, _survey_completed = _run_end_of_session_survey(
-        trial_index=trial_index, cum_reward=cum_reward
-    )
+    if _debug_flag("skip_survey"):
+        _survey_completed = True
+    else:
+        trial_index, _survey_completed = _run_end_of_session_survey(
+            trial_index=trial_index, cum_reward=cum_reward
+        )
     if not _survey_completed:
         completed_normally = False
 
 if completed_normally:
     end_text.draw()
     win.flip()
-    event.waitKeys()
+    if _debug_flag("auto_advance_instructions"):
+        _debug_fast_wait()
+    else:
+        event.waitKeys()
 
 _end_status = "completed normally" if completed_normally else "interrupted"
 _append_session_log(_log_path, [
