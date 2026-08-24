@@ -43,10 +43,10 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
+    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "12"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
@@ -60,7 +60,7 @@ if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
     )
 
 
-CODE_VERSION = "v1.2-2026-08-19"
+CODE_VERSION = "v2-2026-08-19"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
