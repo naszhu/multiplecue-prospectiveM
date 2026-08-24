@@ -1,0 +1,19 @@
+PRACTICE 3
+
+The procedure remains the same as in Session 2. However, now two cue digits may appear on two different circles.
+
+You should try to respond to the color of the circle with the highest digit to earn as many points as possible. You will also be rewarded if you respond with the color of the circle with the lower digit.
+
+Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
+
+The color-finger mapping remains visible below the circles:
+
+{COLOR_FINGER_LINE}
+
+Try to collect as many points as possible.
+
+__________
+
+Remember to keep fixating at the cross at the start of each trial.
+
+Press *space* to begin.

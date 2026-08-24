@@ -4,7 +4,7 @@ The task is the same as in the final practice session.
 
 Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward by pressing the key for its color:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 There is no prospective memory task in this session. Respond only with the color keys.
 

@@ -1,0 +1,19 @@
+PRACTICE 2
+
+The procedure remains the same. However, three circles with different colors will be shown in a triangle on the screen. Only one circle will show a reward digit (1, 2, or 3); the other two will be empty.
+
+You should respond to the color of the circle with the digit.
+
+Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
+
+The color-finger mapping remains visible below the circles:
+
+{COLOR_FINGER_LINE}
+
+Try to collect as many points as possible.
+
+__________
+
+Remember to keep fixating at the cross at the start of each trial.
+
+Press *space* to begin.

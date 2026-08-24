@@ -4,7 +4,7 @@ The procedure remains the same. However, three circles with different colors wil
 
 You should respond to the color of the circle with the digit.
 
-The color-key mapping (Red = N, Blue = J, Green = K) remains visible below the circles.
+The color-key mapping ({COLOR_KEY_LINE_INLINE}) remains visible below the circles.
 
 Try to collect as many points as possible.
 

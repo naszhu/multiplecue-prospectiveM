@@ -6,7 +6,7 @@ On some trials, one circle will show an ORANGE RING on its border. When you see 
 
 Otherwise, choose the circle with the highest reward digit:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen.
 
