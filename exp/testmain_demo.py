@@ -1033,6 +1033,11 @@ def _build_metadata(
             "burnin_block_number": BURNIN_BLOCK_NUMBER if include_burnin_block else None,
             "burnin_source_session": BURNIN_SOURCE_SESSION,
             "burnin_source_phase": BURNIN_SOURCE_PHASE,
+            "burnin_pm_trials": (
+                _burnin_pm_trial_count(BURNIN_SOURCE_PHASE, BURNIN_SOURCE_SESSION)
+                if include_burnin_block and BURNIN_SOURCE_PHASE
+                else 0
+            ),
             "burnin_skipped_by_experimenter": BURNIN_SKIPPED if include_burnin_block else None,
             "burnin_eligibility_note": (
                 "Burn-in block included when session >= 6, first session of day, and participation day > 1."
@@ -1515,23 +1520,52 @@ def _make_block(
     return block_trials
 
 
+def _burnin_pm_trial_count(session_phase: str, session_number: int) -> int:
+    """PM trials in the burn-in block, scaled to the main-block PM rate of that session."""
+    if session_phase not in ("focal_pm", "nonfocal_pm"):
+        return 0
+    gen = get_session_generation_config(session_number)
+    trials_per_block = get_session_trial_config(session_number)["n_per_block"]
+    pm_rate = gen["n_cue_conditions"] / trials_per_block
+    return max(1, round(BURNIN_TRIALS_PER_BLOCK * pm_rate))
+
+
 def _make_burnin_block(
     rng: random.Random,
     session_phase: str,
     session_number: int,
 ) -> list:
-    """20-trial re-acclimation block: ongoing trials only, balanced across cue conditions."""
+    """20-trial re-acclimation block reproducing the source session's task, PM trials included."""
     gen = get_session_generation_config(session_number)
     cue_conditions = gen["cue_conditions"]
     single_center = gen["single_center"]
     cue_pools = _cue_pools_for_session(session_number)
     n_cue = len(cue_conditions)
-    base_reps = BURNIN_TRIALS_PER_BLOCK // n_cue
-    remainder = BURNIN_TRIALS_PER_BLOCK % n_cue
+    pm_kind = _pm_trial_kind_for_phase(session_phase)
+    pm_positions = [CENTER_POSITION_NAME] if single_center else POSITION_NAMES
+    n_pm = _burnin_pm_trial_count(session_phase, session_number)
+    # At most one PM trial per cue condition, as in the main blocks.
+    pm_cue_indices = set(rng.sample(range(n_cue), n_pm)) if n_pm else set()
+
+    n_ongoing_total = BURNIN_TRIALS_PER_BLOCK - n_pm
+    base_reps = n_ongoing_total // n_cue
+    remainder = n_ongoing_total % n_cue
 
     block_trials = []
     for cue_index, _cue_condition in enumerate(cue_conditions):
         pool = cue_pools[cue_index]
+        if cue_index in pm_cue_indices:
+            pm_stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": True,
+                "pm_trial_kind": pm_kind,
+                "pm_position": rng.choice(pm_positions),
+                "warm_up": 1,
+                "burn_in_block": 1,
+                "pm_practice_block": 0,
+            }
+            _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
+            block_trials.append(pm_stub)
         n_this = base_reps + (1 if cue_index < remainder else 0)
         for _ in range(n_this):
             stub = {
