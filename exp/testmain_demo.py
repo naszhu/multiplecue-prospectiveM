@@ -41,11 +41,11 @@ DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6
 COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
-    "enabled": False,
+    "enabled": True,
     "trial_duration": 0.001,
-    "auto_advance_instructions": False,
-    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
-    "full_screen": True,
+    "auto_advance_instructions": True,
+    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
+    "full_screen": False,
 }
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
@@ -919,6 +919,8 @@ def _build_trial_row(
         "SRBFirmwareVersion": srb_firmware_version,
         "SyncOK": sync_ok,
         "Note": trial_note,
+        "TrialType": "task",
+        "SurveyQuestion": "",
     }
 
 
@@ -992,6 +994,10 @@ DAT_COLUMN_DESCRIPTIONS = {
         "1 for keyboard trials (no Arduino sync needed)."
     ),
     "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
+    "TrialType": "'task' for ordinary trial rows; 'survey' for end-of-session survey rows.",
+    "SurveyQuestion": (
+        "End-of-session survey question number (1-5) for TrialType='survey' rows; empty otherwise."
+    ),
 }
 
 
@@ -2908,6 +2914,295 @@ def _maybe_run_session1_ishihara_screening() -> None:
 
 
 # =============================================================================
+# END-OF-SESSION SURVEY
+# =============================================================================
+
+SURVEY_BLOCK_NUMBER = -2
+
+_SURVEY_TEXT_ENTRY_PUNCTUATION = {
+    "space": " ",
+    "period": ".",
+    "comma": ",",
+    "minus": "-",
+    "apostrophe": "'",
+    "slash": "/",
+    "semicolon": ";",
+    "equal": "=",
+}
+
+
+def _survey_prompt_text(question: str, options: list[str]) -> str:
+    lines = [question, ""]
+    for idx, option in enumerate(options, start=1):
+        lines.append(f"{idx}.  {option}")
+    lines.append("")
+    lines.append(f"Press a number key (1-{len(options)}) to respond.")
+    return "\n".join(lines)
+
+
+def _collect_choice_response(question: str, options: list[str]) -> str | None:
+    """Numbered multiple-choice question; returns the chosen digit as str, or None if quit."""
+    key_list = [str(i) for i in range(1, len(options) + 1)]
+    while True:
+        _set_instruction_display(
+            _survey_prompt_text(question, options), use_cjk_font=True
+        )
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=key_list + [QUIT_KEY], maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                return None
+            continue
+        return key
+
+
+def _collect_free_text_response(question: str, *, max_len: int = 300) -> str | None:
+    """Free-text entry (letters, digits, space, basic punctuation); ENTER submits, ESC quits."""
+    letter_keys = list("abcdefghijklmnopqrstuvwxyz")
+    digit_keys = [str(d) for d in range(10)]
+    key_list = (
+        letter_keys
+        + digit_keys
+        + list(_SURVEY_TEXT_ENTRY_PUNCTUATION.keys())
+        + ["backspace", "return", QUIT_KEY]
+    )
+    typed = ""
+    while True:
+        prompt = (
+            f"{question}\n\n"
+            "(Type your answer: letters, numbers, space, and basic punctuation only.\n"
+            "BACKSPACE to correct, ENTER to submit.)\n\n"
+            "__________\n\n"
+            f"{typed}_"
+        )
+        _set_instruction_display(prompt, use_cjk_font=True)
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=key_list, maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                return None
+            continue
+        if key == "return":
+            return typed.strip()
+        if key == "backspace":
+            typed = typed[:-1]
+            continue
+        if len(typed) >= max_len:
+            continue
+        if key in _SURVEY_TEXT_ENTRY_PUNCTUATION:
+            typed += _SURVEY_TEXT_ENTRY_PUNCTUATION[key]
+        elif key.isalnum():
+            typed += key
+
+
+def _build_survey_row(
+    *,
+    trial_index: int,
+    survey_question: int,
+    response: str,
+    note: str,
+    cum_reward: float,
+    session_elapsed_sec: float,
+    trial_wall_clock_str: str,
+) -> dict:
+    """CSV row for one end-of-session survey question; reuses the trial-row schema."""
+    return {
+        "ExperimentName": EXPERIMENT_NAME,
+        "ExperimentNumber": EXPERIMENT_NUMBER,
+        "CodeVersion": CODE_VERSION,
+        "ColorMapLayout": COLOR_MAP_LAYOUT,
+        "ColorKeyMapping": COLOR_KEY_MAPPING,
+        "ResponseDevice": RESPONSE_DEVICE,
+        "DeviceName": DEVICE_NAME,
+        "Subject": PARTICIPANT,
+        "Handedness": HANDEDNESS,
+        "ColorVision": COLOR_VISION,
+        "EyeVision": EYE_VISION,
+        "Session": SESSION,
+        "Block": SURVEY_BLOCK_NUMBER,
+        "Trial": trial_index + 1,
+        "WarmUpTrial": 0,
+        "BurnInBlock": 0,
+        "ParticipationDay": PARTICIPATION_DAY,
+        "FirstSessionOfDay": 1 if FIRST_SESSION_OF_DAY else 0,
+        "PMPracticeBlock": 0,
+        "SessionPhase": SESSION_PHASE,
+        "CueCondition": "",
+        "NumCues": 0,
+        "TrialStartJitterTime": 0,
+        "CueSOA": 0,
+        "Cues": "",
+        "CueValues": "",
+        "CueRanks": "",
+        "Response": response,
+        "RespLoc": 0,
+        "PointTargetResponse": "",
+        "RT": 0,
+        "RTComputerClock": 0,
+        "RTDifference": 0,
+        "LateResponse": False,
+        "ACC": 0,
+        "INTR": 0,
+        "CueResponseValue": 0,
+        "CueResponseExpValue": 0,
+        "CueRankResponse": 0,
+        "ExpectedReward": 0,
+        "Reward": 0,
+        "MaxReward": 0,
+        "CumReward": cum_reward,
+        "PMTrial": 0,
+        "PMKind": "",
+        "PMPosition": "",
+        "PMPositionId": 0,
+        "PMKey": PM_KEY,
+        "PMResponse": 0,
+        "PMACC": 0,
+        "PMIntrusion": 0,
+        "PMReward": 0,
+        "FocalPMStyle": "",
+        "CueTime": 0,
+        "PointTargetTime": 0,
+        "ColorTargetTime": 0,
+        "EndTrialTime": 0,
+        "TrialWallClockTime": trial_wall_clock_str,
+        "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "SRBFirmwareVersion": SRB_FIRMWARE_VERSION or "",
+        "SyncOK": 1,
+        "Note": note,
+        "TrialType": "survey",
+        "SurveyQuestion": survey_question,
+    }
+
+
+def _append_survey_row(row: dict) -> None:
+    with open(_out_trials_path, "a", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=csv_columns)
+        writer.writerow(row)
+
+
+def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[int, bool]:
+    """Ask the 5 end-of-session survey questions; append one CSV row per question.
+
+    Returns (updated_trial_index, completed); completed is False if the
+    participant quit partway through the survey.
+    """
+
+    def _record(question_number: int, response: str, note: str) -> int:
+        now = datetime.now()
+        wall_clock = now.strftime("%Y-%m-%d %H:%M:%S") + f".{now.microsecond // 1000:03d}"
+        elapsed = time.perf_counter() - session_start_perf
+        row = _build_survey_row(
+            trial_index=trial_index,
+            survey_question=question_number,
+            response=response,
+            note=note,
+            cum_reward=cum_reward,
+            session_elapsed_sec=elapsed,
+            trial_wall_clock_str=wall_clock,
+        )
+        _append_survey_row(row)
+        return trial_index + 1
+
+    # Q1: room lighting change.
+    q1 = _collect_choice_response(
+        "During this session, did the lighting in the experiment room change "
+        "(for example, the light being turned on or off)?",
+        ["Yes", "No", "I didn't notice / don't remember"],
+    )
+    if q1 is None:
+        return trial_index, False
+    q1_note = ""
+    if q1 == "1":
+        q1_note = _collect_free_text_response(
+            "How did the light change, and how often did this happen?"
+        )
+        if q1_note is None:
+            return trial_index, False
+    trial_index = _record(1, q1, q1_note)
+
+    # Q2: interruption by someone in the room.
+    q2 = _collect_choice_response(
+        "Did anyone in the room interrupt or distract you during this session?",
+        ["Yes", "No"],
+    )
+    if q2 is None:
+        return trial_index, False
+    q2_note = ""
+    if q2 == "1":
+        q2_note = _collect_free_text_response("Please describe what happened.")
+        if q2_note is None:
+            return trial_index, False
+    trial_index = _record(2, q2, q2_note)
+
+    # Q3: tiredness or other outside influence (no penalty, framed for honesty).
+    q3 = _collect_choice_response(
+        "Were you tired, or affected by anything else, during this session?\n"
+        "(There is no penalty for an honest answer -- it helps us interpret the data.)",
+        ["Yes", "No"],
+    )
+    if q3 is None:
+        return trial_index, False
+    q3_note = ""
+    if q3 == "1":
+        q3_note = _collect_free_text_response("Please describe what happened.")
+        if q3_note is None:
+            return trial_index, False
+    trial_index = _record(3, q3, q3_note)
+
+    # Q4: strategy. Session 1 asks directly (no choice, response stays empty);
+    # later sessions ask whether the strategy changed since last time.
+    if SESSION == 1:
+        q4_note = _collect_free_text_response(
+            "What strategy, if any, are you using to do this task?"
+        )
+        if q4_note is None:
+            return trial_index, False
+        trial_index = _record(4, "", q4_note)
+    else:
+        q4 = _collect_choice_response(
+            "Has your strategy for this task changed since your last session\n"
+            "(for example, becoming more cautious, starting by looking at a\n"
+            "particular color first, silently reading the color code to yourself, etc.)?",
+            ["Yes, my strategy has changed.", "No, I have not changed my strategy."],
+        )
+        if q4 is None:
+            return trial_index, False
+        q4_note = ""
+        if q4 == "1":
+            q4_note = _collect_free_text_response("What did you change, and why?")
+            if q4_note is None:
+                return trial_index, False
+        trial_index = _record(4, q4, q4_note)
+
+    # Q5: automaticity of the color-key response (5-point Likert, no follow-up).
+    q5 = _collect_choice_response(
+        "Do you feel that pressing the color key has become automatic, so that\n"
+        "you no longer need to remind yourself (for example, by silently reading\n"
+        "the color in your mind) before responding?",
+        [
+            "Completely automatic -- I don't need to remind myself at all.",
+            "Mostly automatic -- I rarely need to remind myself.",
+            "Somewhat automatic -- I sometimes need to remind myself.",
+            "Not very automatic -- I often need to remind myself.",
+            "Not automatic at all -- I need to remind myself almost every time.",
+        ],
+    )
+    if q5 is None:
+        return trial_index, False
+    trial_index = _record(5, q5, "")
+
+    return trial_index, True
+
+
+# =============================================================================
 # EXPERIMENT START
 # =============================================================================
 
@@ -3292,6 +3587,13 @@ for trial in trials:
 # =============================================================================
 # END
 # =============================================================================
+
+if completed_normally:
+    trial_index, _survey_completed = _run_end_of_session_survey(
+        trial_index=trial_index, cum_reward=cum_reward
+    )
+    if not _survey_completed:
+        completed_normally = False
 
 if completed_normally:
     end_text.draw()
