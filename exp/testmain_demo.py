@@ -38,20 +38,18 @@ RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
 EXP_DIR = Path(__file__).resolve().parent
 
 DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6"]
-DEVICE_NAME_AUTO_CHOICE = "as assigned"
-DEVICE_NAME_DIALOG_CHOICES = [DEVICE_NAME_AUTO_CHOICE] + DEVICE_NAME_CHOICES
+COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
+    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
-DEFAULT_COLOR_MAP_LAYOUT = "njk"
 ############################# TO MODIFY ABOVE
 
 CODE_VERSION = "v2-2026-08-19"
@@ -62,18 +60,15 @@ PARTICIPANT_COLOR_KEY_MAPPING_PATH = EXP_DIR / "participant_color_key_mapping.cs
 
 ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rbg")})
 _BOOTSTRAP_COLOR_KEY_MAPPING = ALL_COLOR_KEY_MAPPINGS[0]
-COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
 COLOR_KEY_MAPPING_DIALOG_CHOICES: list[str] = []
 COLOR_KEY_MAPPING_CHOICE_TO_VALUE: dict[str, str] = {}
-COLOR_MAP_LAYOUT_AUTO_CHOICE = "as assigned"
-COLOR_MAP_LAYOUT_DIALOG_CHOICES = [COLOR_MAP_LAYOUT_AUTO_CHOICE, "njk"]
 
 # Set after session dialog.
 COLOR_KEY_MAPPING = _BOOTSTRAP_COLOR_KEY_MAPPING
 COLOR_KEY_MAPPING_ASSIGNED = _BOOTSTRAP_COLOR_KEY_MAPPING
 COLOR_KEY_MAPPING_OVERRIDDEN = False
-COLOR_MAP_LAYOUT = DEFAULT_COLOR_MAP_LAYOUT
-COLOR_MAP_LAYOUT_ASSIGNED = DEFAULT_COLOR_MAP_LAYOUT
+COLOR_MAP_LAYOUT = "NA"
+COLOR_MAP_LAYOUT_ASSIGNED = "NA"
 COLOR_MAP_LAYOUT_OVERRIDDEN = False
 RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
 DEVICE_NAME = "NA"
@@ -186,28 +181,37 @@ def _validate_color_key_mapping(mapping: str) -> str:
     return mapping
 
 
-def _load_participant_color_key_mapping_table() -> dict[str, str]:
+def _load_participant_assignment_tables() -> tuple[dict[str, str], dict[str, str]]:
     """Read committed assignment table (read-only; never written by this program)."""
     path = PARTICIPANT_COLOR_KEY_MAPPING_PATH
     if not path.is_file():
         raise SystemExit(f"Missing color-key mapping table: {path}")
-    table: dict[str, str] = {}
+    mapping_table: dict[str, str] = {}
+    layout_table: dict[str, str] = {}
     with open(path, newline="", encoding="utf-8") as fp:
         reader = csv.DictReader(fp)
-        if (
-            reader.fieldnames is None
-            or "participant_id" not in reader.fieldnames
-            or "color_key_mapping" not in reader.fieldnames
-        ):
+        if reader.fieldnames is None or "participant_id" not in reader.fieldnames:
             raise SystemExit(f"Invalid mapping table columns in {path}")
+        if "color_key_mapping" not in reader.fieldnames:
+            raise SystemExit(f"Invalid mapping table columns in {path}")
+        has_layout_col = "color_map_layout" in reader.fieldnames
         for row in reader:
             pid = str(row["participant_id"]).strip()
             mapping = _validate_color_key_mapping(row["color_key_mapping"])
-            table[pid] = mapping
-    return table
+            mapping_table[pid] = mapping
+            if has_layout_col:
+                layout = str(row["color_map_layout"]).strip().lower()
+                if layout not in COLOR_MAP_LAYOUT_CHOICES:
+                    raise SystemExit(
+                        f"Invalid color_map_layout for participant {pid!r} in {path}: {layout!r}"
+                    )
+                layout_table[pid] = layout
+    return mapping_table, layout_table
 
 
-PARTICIPANT_COLOR_KEY_MAPPING = _load_participant_color_key_mapping_table()
+PARTICIPANT_COLOR_KEY_MAPPING, PARTICIPANT_COLOR_MAP_LAYOUT = (
+    _load_participant_assignment_tables()
+)
 
 
 def _color_key_mapping_dialog_label(mapping: str) -> str:
@@ -222,14 +226,12 @@ def _color_key_mapping_dialog_label(mapping: str) -> str:
 def _build_color_key_mapping_dialog_choices() -> tuple[list[str], dict[str, str]]:
     labeled = [_color_key_mapping_dialog_label(mapping) for mapping in ALL_COLOR_KEY_MAPPINGS]
     choice_to_value = dict(zip(labeled, ALL_COLOR_KEY_MAPPINGS))
-    return [COLOR_KEY_MAPPING_AUTO_CHOICE] + labeled, choice_to_value
+    return labeled, choice_to_value
 
 
-def _parse_color_key_mapping_choice(choice: str) -> str | None:
-    """Return mapping code, or None when the dialog left 'as assigned'."""
+def _parse_color_key_mapping_choice(choice: str) -> str:
+    """Return mapping code from a dialog label or raw code."""
     choice = str(choice).strip()
-    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
-        return None
     if choice in COLOR_KEY_MAPPING_CHOICE_TO_VALUE:
         return COLOR_KEY_MAPPING_CHOICE_TO_VALUE[choice]
     return _validate_color_key_mapping(choice)
@@ -249,40 +251,35 @@ def _resolve_color_key_mapping_from_dialog(
     """Return (assigned_mapping, used_mapping, overridden)."""
     assigned = _assigned_color_key_mapping(participant)
     parsed = _parse_color_key_mapping_choice(dialog_choice)
-    if parsed is None:
-        return assigned, assigned, False
     return assigned, parsed, parsed != assigned
+
+
+def _assigned_color_map_layout(participant: str) -> str:
+    if participant in PARTICIPANT_COLOR_MAP_LAYOUT:
+        return PARTICIPANT_COLOR_MAP_LAYOUT[participant]
+    return COLOR_MAP_LAYOUT_CHOICES[0]
 
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
     """Return (assigned_name, used_name, overridden)."""
     choice = str(dialog_choice).strip()
-    if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
-        if _srb_detected_device_name is None:
-            raise SystemExit(
-                "Device name is 'as assigned' but no response box was auto-detected. "
-                "Select a device name manually in the dialog."
-            )
-        return _srb_detected_device_name, _srb_detected_device_name, False
-    assigned = _srb_detected_device_name or choice
     if choice not in DEVICE_NAME_CHOICES:
         raise SystemExit(
-            f"Device name must be '{DEVICE_NAME_AUTO_CHOICE}' or one of {DEVICE_NAME_CHOICES!r}; "
-            f"got {choice!r}."
+            f"Device name must be one of {DEVICE_NAME_CHOICES!r}; got {choice!r}."
         )
-    return assigned, choice, choice != assigned
+    assigned = _srb_detected_device_name or choice
+    return assigned, choice, _srb_detected_device_name is not None and choice != assigned
 
 
-def _resolve_color_map_layout_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
+def _resolve_color_map_layout_from_dialog(
+    participant: str, dialog_choice: str
+) -> tuple[str, str, bool]:
     """Return (assigned_layout, used_layout, overridden)."""
-    assigned = DEFAULT_COLOR_MAP_LAYOUT
+    assigned = _assigned_color_map_layout(participant)
     choice = str(dialog_choice).strip().lower()
-    if choice == COLOR_MAP_LAYOUT_AUTO_CHOICE.lower():
-        return assigned, assigned, False
-    if choice not in COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]:
+    if choice not in COLOR_MAP_LAYOUT_CHOICES:
         raise SystemExit(
-            f"Color map layout must be '{COLOR_MAP_LAYOUT_AUTO_CHOICE}' or one of "
-            f"{COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]!r}; got {choice!r}."
+            f"Color map layout must be one of {COLOR_MAP_LAYOUT_CHOICES!r}; got {choice!r}."
         )
     return assigned, choice, choice != assigned
 
@@ -1800,16 +1797,20 @@ if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get
     elif _srb_detection_warning:
         print(f"SRB detection warning: {_srb_detection_warning}")
 
-# Dialog default for Device name: use auto-detected SRB name if available, else "as assigned"
-_dialog_default_device_name = (
-    _srb_detected_device_name
-    if _srb_detected_device_name is not None
-    else DEVICE_NAME_AUTO_CHOICE
-)
-
+# Dialog defaults: show assigned/read values directly (no "as assigned" placeholder).
 _dialog_default_participant = (
     DEFAULT_PARTICIPANT if DEFAULT_PARTICIPANT in PARTICIPANT_CHOICES else "1"
 )
+_dialog_default_color_key_mapping = _color_key_mapping_dialog_label(
+    _assigned_color_key_mapping(_dialog_default_participant)
+)
+_dialog_default_color_map_layout = _assigned_color_map_layout(_dialog_default_participant)
+_dialog_default_device_name = (
+    _srb_detected_device_name
+    if _srb_detected_device_name is not None
+    else ("KB" if DEBUG_CONFIG.get("simulate_response_box") else "SRB1")
+)
+
 _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
@@ -1899,12 +1900,12 @@ session_dlg.addField(
 )
 session_dlg.addField(
     "Color key mapping",
-    initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
+    initial=_dialog_default_color_key_mapping,
     choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
     tip=(
-        "as assigned = mapping from participant_color_key_mapping.csv for this participant "
+        "Default from participant_color_key_mapping.csv for this participant "
         "(random for test or if id is missing from the table). "
-        "Or pick one of 6 mappings: each sets N/J/K -> red/blue/green."
+        "Override only if incorrect."
     ),
 )
 session_dlg.addField(
@@ -1915,14 +1916,14 @@ session_dlg.addField(
 session_dlg.addField(
     "Device name",
     initial=_dialog_default_device_name,
-    choices=DEVICE_NAME_DIALOG_CHOICES,
-    tip="Auto-detected from box if firmware supports 'I' command. Override only if incorrect.",
+    choices=DEVICE_NAME_CHOICES,
+    tip="Default is auto-detected from the box when possible. Override only if incorrect.",
 )
 session_dlg.addField(
     "Color map layout",
-    initial=COLOR_MAP_LAYOUT_AUTO_CHOICE,
-    choices=COLOR_MAP_LAYOUT_DIALOG_CHOICES,
-    tip="Only NJK layout is implemented; leave as assigned unless instructed.",
+    initial=_dialog_default_color_map_layout,
+    choices=COLOR_MAP_LAYOUT_CHOICES,
+    tip="Default from assignment table when available; only NJK is implemented.",
 )
 session_dlg.addField(
     "Monitor name",
@@ -1973,7 +1974,7 @@ DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name
     session_dlg.data[12]
 )
 COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
-    _resolve_color_map_layout_from_dialog(session_dlg.data[13])
+    _resolve_color_map_layout_from_dialog(PARTICIPANT, session_dlg.data[13])
 )
 MONITOR_NAME = str(session_dlg.data[14]).strip() or DEFAULT_MONITOR_NAME
 SPECIAL_SESSION_NOTE = str(session_dlg.data[15]).strip()
