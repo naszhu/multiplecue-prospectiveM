@@ -1,20 +1,22 @@
 PRACTICE BLOCK
 
-In the sessions you have done so far with the extra task, you responded when a circle had a DASHED WHITE OUTLINE.
-
-Today's sessions use a different additional task.
+In the previous part, the special task was to respond when a circle had a DASHED WHITE OUTLINE. In this new part, the special task is different.
 
 You will first practice this in a short block before the main part of today's session.
 
-On some trials, one circle will show an ORANGE RING on its border. When you see it, press C with your left middle finger instead of the color key.
+SPECIAL TASK: On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see an ORANGE RING, press C with your LEFT MIDDLE FINGER instead of a right-hand color key.
 
-Otherwise, choose the circle with the highest reward digit using:
+ONGOING TASK (same as before): Choose the circle with the highest reward digit using:
 
 {COLOR_KEY_LINE}
 
 During this practice block, the color-key mapping will NOT be shown on the screen. Use what you have learned.
 
-When this practice block ends, you will see the full instructions for today's session before the main blocks begin.
+When this practice block ends, you will see the full instructions before the main blocks begin.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the new special task: when you see an ORANGE RING, press C with your LEFT MIDDLE FINGER instead of a right-hand color key.
 
 __________
 

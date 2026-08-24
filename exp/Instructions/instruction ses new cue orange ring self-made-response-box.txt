@@ -1,18 +1,16 @@
-NEW SESSION — DIFFERENT ADDITIONAL TASK
+You have completed the previous part of the experiment. A new part is beginning.
 
-In the sessions you completed earlier with the extra task, you responded when a circle had a DASHED WHITE OUTLINE.
+In the previous part, the special task was to respond when a circle had a DASHED WHITE OUTLINE. In this new part, the special task is different.
 
-This session uses a different additional task.
+SPECIAL TASK (different from the previous part): In addition to choosing the circle with the highest reward digit, you sometimes need to do another task.
 
-In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
+Keep your left hand on the left half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys. When a special-task trial appears, respond using only your LEFT INDEX FINGER.
 
-Keep your left hand on the left half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys. When a PM trial appears, respond using only your LEFT INDEX FINGER.
-
-On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see an ORANGE RING, press the key under your LEFT INDEX FINGER instead of a color key. Responding correctly earns 5 bonus points.
+On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see an ORANGE RING, press the key under your LEFT INDEX FINGER instead of a right-hand color key. Responding correctly earns 5 bonus points.
 
 __________
 
-ONGOING TASK (same circle choice as before):
+ONGOING TASK (same as before):
 
 Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
 
@@ -21,6 +19,10 @@ Three colored circles may appear with one or two reward digits. Choose the circl
 {COLOR_FINGER_LINE}
 
 The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the new special task above: when you see an ORANGE RING, press the key under your LEFT INDEX FINGER instead of a right-hand color key.
 
 __________
 

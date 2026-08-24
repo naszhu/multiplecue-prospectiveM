@@ -1,23 +1,27 @@
-ØVELSESBLOK
+ØVELSE
 
-Du har nu afsluttet baseline-sessionerne. Fra nu af er opgaven anderledes: ud over at vælge cirklen med den højeste belønning skal du nogle gange give et andet svar.
+Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del, hvor der ud over hovedopgaven med farvevalg også er en særlig opgave.
 
-Du øver først i en kort blok, før hoveddelen af dagens session begynder.
+Inden hoveddelen af dagens session begynder, skal du øve dette kort.
 
-Hold din venstre hånd på responseboksens venstre halvdel. Når et PM-forsøg vises, skal du kun bruge din LEFT INDEX FINGER.
+Placer din venstre hånd på venstre halvdel af response boxen, med alle fem fingre hvilende let på tasterne. Løft eller flyt ikke fingrene fra tasterne. Når der kommer en forsøgsrunde med den særlige opgave, skal du kun svare med VENSTRE PEGEFINGER.
 
-På nogle forsøg vil en cirkel vise en ORANGE RING på kanten. Når du ser en ORANGE RING, skal du trykke på tasten under din LEFT INDEX FINGER i stedet for en farvetast.
+SÆRLIG OPGAVE: I nogle forsøgsrunder får én af cirklerne en ORANGE RING langs kanten (cirklen beholder sin normale røde, blå eller grønne farve). Når du ser en ORANGE RING, skal du trykke på tasten under VENSTRE PEGEFINGER i stedet for en farvetast med højre hånd.
 
-Hold din højre hånd på responseboksens højre halvdel.
+Placer din højre hånd på højre halvdel af response boxen, med alle fem fingre hvilende let på tasterne. Løft eller flyt ikke fingrene fra tasterne.
 
-Ellers skal du vælge cirklen med det højeste belønningsciffer ved at bruge din højre pege-, lang- og ringfinger:
+LØBENDE OPGAVE (samme som før): Vælg cirklen med det højeste belønningsciffer med højre pegefinger, langfinger og ringfinger:
 
 {COLOR_FINGER_LINE}
 
-Under denne øvelsesblok vises farve-finger-tilknytningen IKKE på skærmen. Brug det, du allerede har lært.
+Under øvelsen vises farve-finger-tilknytningen IKKE på skærmen. Brug det, du har lært.
 
-Når øvelsesblokken slutter, vil du se de fulde instruktioner for dagens session, før hovedblokkene begynder.
+Når øvelsen er slut, ser du de fulde instruktioner, før det egentlige eksperiment begynder.
 
 __________
 
-Tryk på *space* for at begynde øvelsesblokken.
+Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med den særlige opgave: når du ser en ORANGE RING, skal du trykke på tasten under VENSTRE PEGEFINGER i stedet for en farvetast med højre hånd.
+
+__________
+
+Tryk på *space* for at begynde øvelsen.

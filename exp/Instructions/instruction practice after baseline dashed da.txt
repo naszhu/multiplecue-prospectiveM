@@ -1,19 +1,23 @@
-ØVELSESBLOK
+ØVELSE
 
-Du har nu afsluttet baseline-sessionerne. Fra nu af er opgaven anderledes: ud over at vælge cirklen med den højeste belønning skal du nogle gange give et andet svar.
+Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del, hvor der ud over hovedopgaven med farvevalg også er en særlig opgave.
 
-Du øver først i en kort blok, før hoveddelen af dagens session begynder.
+Inden hoveddelen af dagens session begynder, skal du øve dette kort.
 
-På nogle forsøg vil en cirkel have en STIPPLET HVID KONTUR (DASHED WHITE OUTLINE) i stedet for den normale faste kant. Når du ser en DASHED WHITE OUTLINE, skal du trykke C med din VENSTRE LANGFINGER i stedet for farvetasten.
+SÆRLIG OPGAVE: I nogle forsøgsrunder får én af cirklerne en STIPLET HVID KANT i stedet for den normale, ubrudte kant (cirklen beholder sin normale farve og sit belønningsciffer). Når du ser en STIPLET HVID KANT, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
 
-Ellers skal du vælge cirklen med det højeste belønningsciffer ved at bruge:
+LØBENDE OPGAVE (samme som før): Vælg cirklen med det højeste belønningsciffer:
 
 {COLOR_KEY_LINE}
 
-Under denne øvelsesblok vises farve-tast-tilknytningen IKKE på skærmen. Brug det, du allerede har lært.
+Under øvelsen vises farve-tast-tilknytningen IKKE på skærmen. Brug det, du har lært.
 
-Når øvelsesblokken slutter, vil du se de fulde instruktioner for dagens session, før hovedblokkene begynder.
+Når øvelsen er slut, ser du de fulde instruktioner, før det egentlige eksperiment begynder.
 
 __________
 
-Tryk på *space* for at begynde øvelsesblokken.
+Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med den særlige opgave: når du ser en STIPLET HVID KANT, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
+
+__________
+
+Tryk på *space* for at begynde øvelsen.

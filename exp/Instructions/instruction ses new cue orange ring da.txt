@@ -1,22 +1,24 @@
-NY SESSION — ANDEN EKSTRAOPGAVE
+Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del.
 
-I de tidligere sessioner med en ekstra opgave reagerede du, når en cirkel havde en STIPPLET HVID KONTUR (DASHED WHITE OUTLINE).
+I den forrige del bestod den særlige opgave i at reagere, når en cirkel havde en STIPLET HVID KANT. I denne nye del er den særlige opgave en anden.
 
-Denne session bruger en anden ekstra opgave.
+SÆRLIG OPGAVE (anderledes end i den forrige del): Ud over at vælge cirklen med det højeste belønningsciffer skal du nogle gange løse en anden opgave.
 
-Ud over at vælge cirklen med det højeste belønningsciffer skal du nogle gange give et andet svar:
-
-På nogle forsøg vil en cirkel vise en ORANGE RING på kanten (cirklen beholder sin normale røde, blå eller grønne farve). Når du ser en ORANGE RING, skal du trykke C med din VENSTRE LANGFINGER i stedet for farvetasten. Et korrekt svar giver 5 bonuspoint.
+I nogle forsøgsrunder får én af cirklerne en ORANGE RING langs kanten (cirklen beholder sin normale røde, blå eller grønne farve). Når du ser en ORANGE RING, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd. Et korrekt svar giver 5 bonuspoint.
 
 __________
 
-LØBENDE OPGAVE (samme cirkelvalg som før):
+LØBENDE OPGAVE (samme som før):
 
-Tre farvede cirkler kan vises med et eller to belønningscifre. Vælg cirklen med den højeste belønning:
+Der kan vises tre farvede cirkler med et eller to belønningscifre. Vælg cirklen med den højeste belønning:
 
 {COLOR_KEY_LINE}
 
 Farve-tast-tilknytningen vises ikke på skærmen under eksperimentet.
+
+__________
+
+Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med den nye særlige opgave: når du ser en ORANGE RING, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
 
 __________
 
