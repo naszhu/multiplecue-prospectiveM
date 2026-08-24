@@ -6,7 +6,7 @@ This session uses a different additional task.
 
 In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
 
-On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit). When you see a dashed outline, press C with your left middle finger instead of the color key. Responding correctly earns 5 bonus points.
+On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit). When you see a DASHED WHITE OUTLINE, press C with your LEFT MIDDLE FINGER instead of the color key. Responding correctly earns 5 bonus points.
 
 __________
 

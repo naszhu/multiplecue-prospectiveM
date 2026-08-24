@@ -2433,6 +2433,63 @@ def _set_instruction_display(
         instructions.font = DEFAULT_INSTRUCTION_FONT
 
 
+def _instruction_with_language_header(language: str, body: str) -> str:
+    return f"{INSTRUCTION_LANGUAGE_SWITCHER[language]}\n__________\n\n{body}"
+
+
+def _show_instruction_with_language_switch(
+    load_body,
+    *,
+    initial_language: str | None = None,
+) -> bool:
+    """Show instruction text with en/zh/da switcher line separated above the body."""
+    global SESSION1_INSTRUCTION_LANGUAGE
+    language = initial_language or SESSION1_INSTRUCTION_LANGUAGE
+    while True:
+        body = load_body(language)
+        _set_instruction_display(
+            _instruction_with_language_header(language, body),
+            language=language,
+            use_session1_height=True,
+            use_cjk_font=True,
+        )
+        instructions.draw()
+        win.flip()
+        while True:
+            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
+            if not keys:
+                instructions.draw()
+                win.flip()
+                continue
+            key = keys[0]
+            if key == "c" and language != "zh":
+                language = "zh"
+                break
+            if key == "d" and language != "da":
+                language = "da"
+                break
+            if key == "e" and language != "en":
+                language = "en"
+                break
+            if key == START_KEY:
+                SESSION1_INSTRUCTION_LANGUAGE = language
+                return True
+            if key == QUIT_KEY and _confirm_exit_or_continue():
+                return False
+            instructions.draw()
+            win.flip()
+
+
+def _show_session_instruction(session: int, participant_id: str) -> bool:
+    if _uses_new_cue_language_switch(session):
+        return _show_instruction_with_language_switch(
+            lambda language: _load_session_instruction(
+                session, participant_id, language=language
+            ),
+        )
+    return _show_instruction_text(_load_session_instruction(session, participant_id))
+
+
 def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: str = "en"):
     _set_instruction_display(text, language=language, use_cjk_font=use_cjk_font)
     instructions.draw()
@@ -2486,42 +2543,7 @@ def _show_language_selection_screen() -> str | None:
 
 def _show_session1_first_instruction() -> bool:
     """Session 1 opening instruction with English / 中文 / dansk switching."""
-    global SESSION1_INSTRUCTION_LANGUAGE
-    language = SESSION1_INSTRUCTION_LANGUAGE  # respect pre-selection from language screen
-    while True:
-        body = _load_session1_instruction(language)
-        _set_instruction_display(
-            INSTRUCTION_LANGUAGE_SWITCHER[language] + body,
-            language=language,
-            use_session1_height=True,
-            use_cjk_font=True,
-        )
-        instructions.draw()
-        win.flip()
-        while True:
-            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
-            if not keys:
-                # Keepalive redraw so the display stays active during long waits
-                instructions.draw()
-                win.flip()
-                continue
-            key = keys[0]
-            if key == "c" and language != "zh":
-                language = "zh"
-                break
-            if key == "d" and language != "da":
-                language = "da"
-                break
-            if key == "e" and language != "en":
-                language = "en"
-                break
-            if key == START_KEY:
-                SESSION1_INSTRUCTION_LANGUAGE = language
-                return True
-            if key == QUIT_KEY and _confirm_exit_or_continue():
-                return False
-            instructions.draw()
-            win.flip()
+    return _show_instruction_with_language_switch(_load_session1_instruction)
 
 
 def _trials_in_block(block_number):
@@ -2739,9 +2761,7 @@ for trial in trials:
     current_block = trial["block"]
     if prev_block is not None and current_block != prev_block:
         if prev_block == PM_PRACTICE_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_text(
-                _load_session_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_session_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == PM_PRACTICE_BLOCK_NUMBER:
@@ -2751,9 +2771,7 @@ for trial in trials:
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_text(
-                _load_session_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_session_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         else:
