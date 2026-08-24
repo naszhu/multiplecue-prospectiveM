@@ -43,10 +43,10 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
+    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "3"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "12"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
@@ -60,7 +60,7 @@ if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
     )
 
 
-CODE_VERSION = "v1.1-2026-06-18"
+CODE_VERSION = "v1.2-2026-08-19"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -85,6 +85,8 @@ RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
 DEVICE_NAME = DEFAULT_DEVICE_NAME
 DEVICE_NAME_ASSIGNED = DEFAULT_DEVICE_NAME
 DEVICE_NAME_OVERRIDDEN = False
+SRB_FIRMWARE_VERSION: str | None = None
+SRB_DETECTION_WARNING: str | None = None
 REPEAT_DATA_NOTE = ""
 REPEAT_REASON = ""
 DATA_FILE_STEM = ""
@@ -92,6 +94,7 @@ AGE = "NA"
 GENDER = "NA"
 PARTICIPATION_DAY = 1
 FIRST_SESSION_OF_DAY = True
+SPECIAL_SESSION_NOTE = ""
 
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
 INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
@@ -112,6 +115,7 @@ FIXATION_TIME = 0.5
 MAX_RESPONSE_TIME = 3.0
 FEEDBACK_WAIT_TIME = 1.5
 ITI_TIME = 0.3
+MIN_RT_MS = 100  # Responses faster than this are treated as accidental button-holds
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
@@ -251,7 +255,11 @@ def _resolve_color_key_mapping_from_dialog(
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
     """Return (assigned_name, used_name, overridden)."""
-    assigned = DEFAULT_DEVICE_NAME
+    assigned = (
+        _srb_detected_device_name
+        if _srb_detected_device_name is not None
+        else DEFAULT_DEVICE_NAME
+    )
     choice = str(dialog_choice).strip()
     if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
         return assigned, assigned, False
@@ -312,6 +320,18 @@ def _participant_data_dir(participant: str) -> Path:
     return DATA_OUT_DIR / f"subj{participant}"
 
 
+def _session_log_path(participant: str, out_dir: Path) -> Path:
+    return out_dir / f"PMCP_subj{participant}_session_log.txt"
+
+
+def _append_session_log(log_path: Path, lines: list[str]) -> None:
+    """Append one or more lines to the session log, creating the file if needed."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        for line in lines:
+            f.write(line + "\n")
+
+
 def _max_completed_session(participant: str, out_dir: Path) -> int | None:
     """Highest session number found for this participant, or None."""
     prefix = f"PMCP_subj{participant}_ses"
@@ -331,6 +351,77 @@ def _max_completed_session(participant: str, out_dir: Path) -> int | None:
 def _suggested_next_session(participant: str, out_dir: Path) -> int:
     max_session = _max_completed_session(participant, out_dir)
     return 1 if max_session is None else max_session + 1
+
+
+def _most_recent_metadata(participant: str, out_dir: Path) -> dict | None:
+    """Return the parsed JSON of the most recent metadata file, or None."""
+    if not out_dir.is_dir():
+        return None
+    prefix = f"PMCP_subj{participant}_ses"
+    candidates = []
+    for path in out_dir.iterdir():
+        if path.is_file() and path.name.startswith(prefix) and path.name.endswith("_metadata.json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                start_str = data.get("run_and_display_metadata", {}).get("exp_start_time", "")
+                candidates.append((start_str, data))
+            except Exception:
+                continue
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[-1][1]
+
+
+def _infer_participation_day_and_first_session(
+    participant: str, out_dir: Path
+) -> tuple[str, str]:
+    """Return (participation_day_label, first_session_of_day_choice) for dialog defaults.
+
+    participation_day_label: '1st' | '2nd' | '3rd' | '4th'
+    first_session_of_day_choice: 'yes' | 'no'
+    """
+    meta = _most_recent_metadata(participant, out_dir)
+    if meta is None:
+        return "1st", "yes"
+
+    run_meta = meta.get("run_and_display_metadata", {})
+    last_day = int(run_meta.get("participation_day", 1))
+    last_start_str = run_meta.get("exp_start_time", "")
+
+    today = datetime.today().date()
+    try:
+        last_date = datetime.strptime(last_start_str[:10], "%Y-%m-%d").date()
+    except Exception:
+        return "1st", "yes"
+
+    label_map = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th",
+                 6: "6th", 7: "7th", 8: "8th", 9: "9th", 10: "10th"}
+
+    if last_date == today:
+        # Same day → still the same participation day, not the first session
+        day = max(1, min(last_day, 10))
+        return label_map[day], "no"
+    else:
+        # New calendar day → participation day increments
+        day = max(1, min(last_day + 1, 10))
+        return label_map[day], "yes"
+
+
+def _load_last_session_demographics(participant: str, out_dir: Path) -> dict:
+    """Return demographics dict from the most recent metadata, or empty dict if none found."""
+    meta = _most_recent_metadata(participant, out_dir)
+    if meta is None:
+        return {}
+    run_meta = meta.get("run_and_display_metadata", {})
+    return {
+        "age": run_meta.get("age", "NA"),
+        "gender": run_meta.get("gender", "NA"),
+        "handedness": run_meta.get("handedness", "right"),
+        "color_vision": run_meta.get("color_vision", "normal"),
+        "eye_vision": run_meta.get("eye_vision", "normal"),
+    }
 
 
 def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
@@ -392,6 +483,65 @@ def _find_self_made_response_box_port() -> str:
             if port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
                 return port.device
     return "/dev/ttyACM0"
+
+
+def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
+    """Open a port briefly, send 'I', and parse the 'SRBX,vY.Z' reply.
+
+    Returns (device_name, firmware_version) or (None, None) on any failure.
+    Closes the port before returning.
+    """
+    if serial is None:
+        return None, None
+    try:
+        box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.5)
+        time.sleep(2.0)
+        box.reset_input_buffer()
+        box.write(b"I")
+        box.flush()
+        reply = box.readline().decode("ascii", errors="ignore").strip()
+        box.close()
+        if not reply:
+            return None, None
+        parts = reply.split(",")
+        device_name = parts[0].strip() if parts else None
+        firmware_version = parts[1].strip() if len(parts) > 1 else None
+        if device_name not in DEVICE_NAME_CHOICES:
+            return None, firmware_version
+        return device_name, firmware_version
+    except Exception:
+        return None, None
+
+
+def _auto_detect_srb_device() -> tuple[str | None, str | None, str | None, str | None]:
+    """Scan serial ports for a self-made response box that responds to 'I'.
+
+    Returns (port_name, device_name, firmware_version, warning_message).
+    warning_message is non-empty if detection failed or the reply was unexpected.
+    """
+    if list_ports is None or serial is None:
+        return None, None, None, "pyserial not available; SRB auto-detection skipped"
+
+    candidates = [
+        port.device
+        for port in list_ports.comports()
+        if not (port.vid == CEDRUS_VID and port.pid == CEDRUS_PID)
+        and port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB"))
+    ]
+
+    if not candidates:
+        return None, None, None, "No SRB candidate serial ports found"
+
+    for port_name in candidates:
+        device_name, firmware_version = _query_srb_identity(port_name)
+        if device_name is not None:
+            return port_name, device_name, firmware_version, None
+
+    # Found ports but none responded with a recognised device ID
+    return candidates[0], None, None, (
+        f"SRB on {candidates[0]} did not respond to identity query; "
+        "firmware may not support 'I' command"
+    )
 
 
 def _open_self_made_response_box():
@@ -563,6 +713,7 @@ FEEDBACK3_POS_DEG = (0, -140 * STIM_FACTOR)
 FEEDBACK4_POS_DEG = (0, -200 * STIM_FACTOR)
 FEEDBACK_TEXT_COLOR = COLORS["white"]
 TOO_SLOW_TEXT = "TOO SLOW!"
+TOO_FAST_TEXT = "TOO FAST! (0 points)"
 
 COLOR_NAME_TO_ID = {"red": 1, "blue": 2, "green": 3}
 COLOR_ID_TO_DISPLAY = {1: "Red", 2: "Blue", 3: "Green"}
@@ -643,6 +794,8 @@ def _build_trial_row(
     trial_wall_clock_str: str,
     session_elapsed_sec: float,
     trial_note: str = "",
+    sync_ok: int = 1,
+    srb_firmware_version: str = "",
 ) -> dict:
     """Build one CSV row matching CCRP columns plus PM fields."""
     colors = [position_to_color_id[i] or 0 for i in range(N_POSITIONS)]
@@ -758,6 +911,8 @@ def _build_trial_row(
         "EndTrialTime": round(end_trial_time * 1000, 2),
         "TrialWallClockTime": trial_wall_clock_str,
         "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "SRBFirmwareVersion": srb_firmware_version,
+        "SyncOK": sync_ok,
         "Note": trial_note,
     }
 
@@ -822,6 +977,15 @@ DAT_COLUMN_DESCRIPTIONS = {
     "EndTrialTime": "Trial clock time (ms) at end of feedback phase.",
     "TrialWallClockTime": "Local wall-clock date and time when this trial row was logged.",
     "SessionElapsedSec": "Seconds since session timing start (monotonic clock).",
+    "SRBFirmwareVersion": (
+        "Firmware version string reported by the self-made response box when queried with 'I' "
+        "(e.g. 'v1.1'). Empty for keyboard or Cedrus sessions, or if auto-detection was skipped."
+    ),
+    "SyncOK": (
+        "1 if the Arduino acknowledged the trial-start 'S' signal with 'A' (RT timing verified); "
+        "0 if no ack was received (RT may be from the wrong trial); "
+        "1 for keyboard trials (no Arduino sync needed)."
+    ),
     "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
 }
 
@@ -952,6 +1116,8 @@ def _build_metadata(
             "device_name_assigned": DEVICE_NAME_ASSIGNED,
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
             "default_device_name_in_code": DEFAULT_DEVICE_NAME,
+            "srb_firmware_version": SRB_FIRMWARE_VERSION,
+            "srb_detection_warning": SRB_DETECTION_WARNING,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
             "self_made_response_box_pins": _self_made_pin_to_color_metadata(),
             "self_made_response_box_pin_to_key": dict(SELF_MADE_PIN_TO_KEY),
@@ -1594,6 +1760,36 @@ def _load_session_start_instruction(session: int, participant_id: str) -> str:
 # SESSION DIALOG
 # =============================================================================
 
+# Auto-detect self-made response box identity before the dialog
+_srb_detected_port: str | None = None
+_srb_detected_device_name: str | None = None
+_srb_detected_firmware: str | None = None
+_srb_detection_warning: str | None = None
+
+if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get("simulate_response_box"):
+    (
+        _srb_detected_port,
+        _srb_detected_device_name,
+        _srb_detected_firmware,
+        _srb_detection_warning,
+    ) = _auto_detect_srb_device()
+    SRB_FIRMWARE_VERSION = _srb_detected_firmware
+    SRB_DETECTION_WARNING = _srb_detection_warning
+    if _srb_detected_device_name:
+        print(
+            f"SRB auto-detected: {_srb_detected_device_name} "
+            f"(firmware {_srb_detected_firmware}) on {_srb_detected_port}"
+        )
+    elif _srb_detection_warning:
+        print(f"SRB detection warning: {_srb_detection_warning}")
+
+# Dialog default for Device name: use auto-detected SRB name if available, else fall back to config
+_dialog_default_device_name = (
+    _srb_detected_device_name
+    if _srb_detected_device_name is not None
+    else DEVICE_NAME_AUTO_CHOICE
+)
+
 _dialog_default_participant = (
     DEFAULT_PARTICIPANT if DEFAULT_PARTICIPANT in PARTICIPANT_CHOICES else "1"
 )
@@ -1601,44 +1797,83 @@ _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
 )
-PARTICIPATION_DAY_LABEL_TO_NUM = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+PARTICIPATION_DAY_LABEL_TO_NUM = {
+    "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
+    "6th": 6, "7th": 7, "8th": 8, "9th": 9, "10th": 10,
+}
+PARTICIPATION_DAY_CHOICES = list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())
+_dialog_default_participation_day, _dialog_default_first_session = (
+    _infer_participation_day_and_first_session(
+        _dialog_default_participant,
+        _participant_data_dir(_dialog_default_participant),
+    )
+)
+_dialog_default_demographics = _load_last_session_demographics(
+    _dialog_default_participant,
+    _participant_data_dir(_dialog_default_participant),
+)
 session_dlg = gui.Dlg(title="Prospective MCP Session")
 session_dlg.addField(
     "Participant",
     initial=_dialog_default_participant,
     choices=PARTICIPANT_CHOICES,
 )
-session_dlg.addText("— Participant: fill in the fields below —")
 session_dlg.addField("Session", initial=_dialog_default_session)
+
+_has_prior_data = bool(_dialog_default_demographics)
+
+if _has_prior_data:
+    session_dlg.addText("— From last session (auto-filled — change only if needed) —")
+    session_dlg.addField("Age", initial=_dialog_default_demographics.get("age", ""))
+    session_dlg.addField("Gender", initial=_dialog_default_demographics.get("gender", "NA"))
+    session_dlg.addField(
+        "Handedness",
+        initial=_dialog_default_demographics.get("handedness", "right"),
+        choices=["right", "left", "ambidextrous", "other"],
+    )
+    session_dlg.addField(
+        "Color vision",
+        initial=_dialog_default_demographics.get("color_vision", "normal"),
+        choices=["normal", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "Eye vision",
+        initial=_dialog_default_demographics.get("eye_vision", "normal"),
+        choices=["normal", "corrected", "not normal", "unknown"],
+    )
+else:
+    session_dlg.addText("— Participant: please fill in all fields below —")
+    session_dlg.addField("Age", initial="")
+    session_dlg.addField("Gender", initial="NA")
+    session_dlg.addField(
+        "Handedness",
+        initial="right",
+        choices=["right", "left", "ambidextrous", "other"],
+    )
+    session_dlg.addField(
+        "Color vision",
+        initial="normal",
+        choices=["normal", "not normal", "unknown"],
+    )
+    session_dlg.addField(
+        "Eye vision",
+        initial="normal",
+        choices=["normal", "corrected", "not normal", "unknown"],
+    )
+
+session_dlg.addText("— Experimenter only: do not change unless instructed —")
 session_dlg.addField(
     "First session of day?",
-    initial="yes",
+    initial=_dialog_default_first_session,
     choices=["yes", "no"],
+    tip="Auto-derived from data; change if incorrect.",
 )
 session_dlg.addField(
     "Participation day",
-    initial="1st",
-    choices=["1st", "2nd", "3rd", "4th"],
-    tip="Which day of participation is this?",
+    initial=_dialog_default_participation_day,
+    choices=PARTICIPATION_DAY_CHOICES,
+    tip="Auto-derived from data; change if incorrect.",
 )
-session_dlg.addField("Age", initial="")
-session_dlg.addField("Gender", initial="NA")
-session_dlg.addField(
-    "Handedness",
-    initial="right",
-    choices=["right", "left", "ambidextrous", "other"],
-)
-session_dlg.addField(
-    "Color vision",
-    initial="normal",
-    choices=["normal", "not normal", "unknown"],
-)
-session_dlg.addField(
-    "Eye vision",
-    initial="normal",
-    choices=["normal", "corrected", "not normal", "unknown"],
-)
-session_dlg.addText("— Experimenter only: do not change unless instructed —")
 session_dlg.addField(
     "Color key mapping",
     initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
@@ -1656,9 +1891,9 @@ session_dlg.addField(
 )
 session_dlg.addField(
     "Device name",
-    initial=DEVICE_NAME_AUTO_CHOICE,
+    initial=_dialog_default_device_name,
     choices=DEVICE_NAME_DIALOG_CHOICES,
-    tip="Default uses DEFAULT_DEVICE_NAME from code. Pick KB/RB/SRB1–6 only to override.",
+    tip="Auto-detected from box if firmware supports 'I' command. Override only if incorrect.",
 )
 session_dlg.addField(
     "Color map layout",
@@ -1670,6 +1905,11 @@ session_dlg.addField(
     "Monitor name",
     initial=DEFAULT_MONITOR_NAME,
     choices=MONITOR_CHOICES,
+)
+session_dlg.addField(
+    "Special session note",
+    initial="",
+    tip="Optional free-text note for this session (e.g. technical issues, participant remarks). Leave blank if nothing to note.",
 )
 session_dlg.show()
 if not session_dlg.OK:
@@ -1685,18 +1925,21 @@ SESSION = int(session_dlg.data[1])
 if SESSION < 1 or SESSION > MAX_SESSION:
     raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
 
-FIRST_SESSION_OF_DAY = str(session_dlg.data[2]).strip().lower() == "yes"
-_participation_day_label = str(session_dlg.data[3]).strip().lower()
+# Section 1: required on first session
+AGE = str(session_dlg.data[2]).strip() or "NA"
+GENDER = str(session_dlg.data[3]).strip() or "NA"
+# Section 2: auto-filled from last session
+HANDEDNESS = str(session_dlg.data[4]).strip() or "NA"
+COLOR_VISION = str(session_dlg.data[5]).strip() or "NA"
+EYE_VISION = str(session_dlg.data[6]).strip() or "NA"
+FIRST_SESSION_OF_DAY = str(session_dlg.data[7]).strip().lower() == "yes"
+_participation_day_label = str(session_dlg.data[8]).strip().lower()
 if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     raise SystemExit(
-        f"Invalid participation day: {session_dlg.data[3]!r}. Choose 1st, 2nd, 3rd, or 4th."
+        f"Invalid participation day: {session_dlg.data[8]!r}. Choose one of: {list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())}."
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
-AGE = str(session_dlg.data[4]).strip() or "NA"
-GENDER = str(session_dlg.data[5]).strip() or "NA"
-HANDEDNESS = str(session_dlg.data[6]).strip() or "NA"
-COLOR_VISION = str(session_dlg.data[7]).strip() or "NA"
-EYE_VISION = str(session_dlg.data[8]).strip() or "NA"
+# Section 3: experimenter only
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
     _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
 )
@@ -1709,6 +1952,42 @@ COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
     _resolve_color_map_layout_from_dialog(session_dlg.data[12])
 )
 MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
+SPECIAL_SESSION_NOTE = str(session_dlg.data[14]).strip()
+
+# Collect log entries for any defaults that were manually changed
+_SESSION_START_LOG_EXTRAS: list[str] = []
+if _has_prior_data:
+    _label_map_rev = {v: k for k, v in PARTICIPATION_DAY_LABEL_TO_NUM.items()}
+    for _field, _default_key, _parsed_val in [
+        ("Age",          "age",          AGE),
+        ("Gender",       "gender",       GENDER),
+        ("Handedness",   "handedness",   HANDEDNESS),
+        ("Color vision", "color_vision", COLOR_VISION),
+        ("Eye vision",   "eye_vision",   EYE_VISION),
+    ]:
+        _default_val = str(_dialog_default_demographics.get(_default_key, "")).strip()
+        if str(_parsed_val).strip() != _default_val:
+            _SESSION_START_LOG_EXTRAS.append(
+                f"  {_field} changed from default: '{_default_val}' -> '{_parsed_val}'"
+            )
+    _fsod_str = "yes" if FIRST_SESSION_OF_DAY else "no"
+    if _fsod_str != _dialog_default_first_session:
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  First session of day changed from default: '{_dialog_default_first_session}' -> '{_fsod_str}'"
+        )
+    _part_day_label = _label_map_rev.get(PARTICIPATION_DAY, str(PARTICIPATION_DAY))
+    if _part_day_label != _dialog_default_participation_day:
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Participation day changed from default: '{_dialog_default_participation_day}' -> '{_part_day_label}'"
+        )
+if SPECIAL_SESSION_NOTE:
+    _SESSION_START_LOG_EXTRAS.append(f"  Special session note: {SPECIAL_SESSION_NOTE}")
+if SRB_DETECTION_WARNING:
+    _SESSION_START_LOG_EXTRAS.append(f"  SRB detection warning: {SRB_DETECTION_WARNING}")
+elif _srb_detected_device_name:
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  SRB auto-detected: {_srb_detected_device_name}, firmware {_srb_detected_firmware}"
+    )
 
 # Post-dialog checks (order matters):
 # 1) unexpected session number, 2) repeated data for same participant+session
@@ -1989,21 +2268,35 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
 
 
 def _confirm_exit_or_continue():
-    esc_confirm_text.draw()
-    win.flip()
-    keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY])
-    return bool(keys and keys[0] == QUIT_KEY)
-
-
-def _wait_space_or_exit():
     while True:
-        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY])
+        esc_confirm_text.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=[QUIT_KEY, START_KEY], maxWait=0.5)
+        if keys:
+            return bool(keys[0] == QUIT_KEY)
+
+
+def _wait_space_or_exit(redraw_stim=None):
+    """Wait for SPACE (return True) or ESC (return False).
+
+    If *redraw_stim* is given it is redrawn and flipped every ~0.5 s so the
+    display stays active during long pauses (prevents screen blank on Linux).
+    """
+    while True:
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
+        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
         if not keys:
             continue
         if keys[0] == START_KEY:
             return True
         if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
             return False
+        # After returning from exit confirm, redraw stim and continue waiting
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
 
 
 def _set_instruction_display(
@@ -2029,13 +2322,57 @@ def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: s
     _set_instruction_display(text, language=language, use_cjk_font=use_cjk_font)
     instructions.draw()
     win.flip()
-    return _wait_space_or_exit()
+    return _wait_space_or_exit(redraw_stim=instructions)
+
+
+_LANGUAGE_SELECTION_TEXT = (
+    "Please select your language / 请选择语言 / Vælg venligst dit sprog\n\n"
+    "Press  E  for English\n"
+    "按      C  选择中文\n"
+    "Tryk   D  for dansk"
+)
+
+
+def _show_language_selection_screen() -> str | None:
+    """Show a language-selection screen before the session-1 instructions.
+
+    Returns the chosen language code ('en', 'zh', 'da'), or None if the
+    participant quit.  The selection is stored in SESSION1_INSTRUCTION_LANGUAGE.
+    """
+    global SESSION1_INSTRUCTION_LANGUAGE
+    _set_instruction_display(
+        _LANGUAGE_SELECTION_TEXT,
+        language="en",
+        use_session1_height=False,
+        use_cjk_font=True,
+    )
+    while True:
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=["e", "c", "d", QUIT_KEY], maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == "e":
+            SESSION1_INSTRUCTION_LANGUAGE = "en"
+            return "en"
+        if key == "c":
+            SESSION1_INSTRUCTION_LANGUAGE = "zh"
+            return "zh"
+        if key == "d":
+            SESSION1_INSTRUCTION_LANGUAGE = "da"
+            return "da"
+        if key == QUIT_KEY and _confirm_exit_or_continue():
+            return None
+        # If confirm was cancelled, redraw and keep waiting
+        instructions.draw()
+        win.flip()
 
 
 def _show_session1_first_instruction() -> bool:
     """Session 1 opening instruction with English / 中文 / dansk switching."""
     global SESSION1_INSTRUCTION_LANGUAGE
-    language = "en"
+    language = SESSION1_INSTRUCTION_LANGUAGE  # respect pre-selection from language screen
     while True:
         body = _load_session1_instruction(language)
         _set_instruction_display(
@@ -2047,8 +2384,11 @@ def _show_session1_first_instruction() -> bool:
         instructions.draw()
         win.flip()
         while True:
-            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"])
+            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
             if not keys:
+                # Keepalive redraw so the display stays active during long waits
+                instructions.draw()
+                win.flip()
                 continue
             key = keys[0]
             if key == "c" and language != "zh":
@@ -2065,6 +2405,8 @@ def _show_session1_first_instruction() -> bool:
                 return True
             if key == QUIT_KEY and _confirm_exit_or_continue():
                 return False
+            instructions.draw()
+            win.flip()
 
 
 def _trials_in_block(block_number):
@@ -2119,6 +2461,9 @@ if INCLUDE_BURNIN:
         win.close()
         core.quit()
 elif SESSION == 1:
+    if _show_language_selection_screen() is None:
+        win.close()
+        core.quit()
     if not _show_session1_first_instruction():
         win.close()
         core.quit()
@@ -2135,6 +2480,10 @@ csv_columns = None
 exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
+_append_session_log(_log_path, [
+    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} started.",
+] + _SESSION_START_LOG_EXTRAS)
 print(f"Trial data will be saved to: {_out_trials_path}")
 print(f"Metadata will be saved to: {_out_metadata_path}")
 
@@ -2170,7 +2519,7 @@ for trial in trials:
             )
             block_break_text.draw()
             win.flip()
-            if not _wait_space_or_exit():
+            if not _wait_space_or_exit(redraw_stim=block_break_text):
                 completed_normally = False
                 break
 
@@ -2281,9 +2630,17 @@ for trial in trials:
     trial_clock.reset()
     win.flip()
     cue_time = trial_clock.getTime()
+    trial_sync_ok = 1  # 1 = confirmed; 0 = ack missing; keyboard always 1
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         serial_response_box.write(b"S")
         serial_response_box.flush()
+        # Expect 'A' acknowledgement immediately (firmware sends it before starting timer)
+        _ack = serial_response_box.read(1)
+        if _ack != b"A":
+            trial_sync_ok = 0
+            _sync_warn = f"no_ack trial {trial_index + 1} (got {_ack!r})"
+            print(f"WARNING: SRB sync ack missing: {_sync_warn}")
+            _append_session_log(_log_path, [f"  WARNING: SRB sync ack missing: {_sync_warn}"])
 
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         self_made_response = _wait_for_self_made_response_box(
@@ -2326,7 +2683,16 @@ for trial in trials:
         rt = MAX_RESPONSE_TIME * 1000
         rt_computer_clock_ms = rt
 
+    too_fast = (
+        not timed_out
+        and rt_computer_clock_ms is not None
+        and rt_computer_clock_ms < MIN_RT_MS
+    )
+
     if timed_out:
+        max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
+        actual_reward = 0
+    elif too_fast:
         max_reward = PM_REWARD if is_pm_trial else max_reward_ccrp
         actual_reward = 0
     elif is_pm_trial:
@@ -2370,6 +2736,9 @@ for trial in trials:
     if timed_out:
         feedback1.setText(TOO_SLOW_TEXT)
         feedback1.bold = True
+    elif too_fast:
+        feedback1.setText(TOO_FAST_TEXT)
+        feedback1.bold = True
     else:
         feedback1.setText(str(actual_reward) + " / " + str(max_reward))
         feedback1.bold = False
@@ -2412,7 +2781,15 @@ for trial in trials:
         trial_start_jitter_time_ms=trial_start_jitter_time_ms,
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
-        trial_note=REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
+        sync_ok=trial_sync_ok,
+        srb_firmware_version=SRB_FIRMWARE_VERSION or "",
+        trial_note=" | ".join(p for p in [
+            "too_fast_rt" if too_fast else "",
+            "srb_sync_failed" if trial_sync_ok == 0 else "",
+            REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
+            SPECIAL_SESSION_NOTE,
+            f"srb_detection_warning: {SRB_DETECTION_WARNING}" if SRB_DETECTION_WARNING else "",
+        ] if p),
     )
 
     if csv_columns is None:
@@ -2453,6 +2830,11 @@ if completed_normally:
     end_text.draw()
     win.flip()
     event.waitKeys()
+
+_end_status = "completed normally" if completed_normally else "interrupted"
+_append_session_log(_log_path, [
+    f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} ended ({_end_status}).",
+])
 
 win.close()
 if serial_response_box is not None:
