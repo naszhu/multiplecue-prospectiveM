@@ -26,6 +26,7 @@ ISHIHARA_SOURCE_CITATION = (
 
 START_KEY = "space"
 QUIT_KEY = "escape"
+_EXPERIMENTER_SKIP_KEY = "p"
 COLOR_SPACE = "rgb255"
 USE_UNITS = "deg"
 WHITE = (255, 255, 255)
@@ -77,6 +78,33 @@ def load_standalone_result(out_dir: Path, participant: str) -> dict | None:
         return None
 
 
+def _experimenter_skip_confirm(win) -> bool:
+    """Experimenter-only two-step skip confirm (second P confirms)."""
+    confirm = visual.TextStim(
+        win,
+        text="Skip color vision screening?\n\nPress SPACE to continue the test.",
+        color=WHITE,
+        colorSpace=COLOR_SPACE,
+        height=INSTRUCTION_LETTER_SIZE_DEG,
+        wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        units=USE_UNITS,
+    )
+    while True:
+        confirm.draw()
+        win.flip()
+        keys = event.waitKeys(
+            keyList=[_EXPERIMENTER_SKIP_KEY, START_KEY, QUIT_KEY],
+            maxWait=0.5,
+        )
+        if not keys:
+            continue
+        key = keys[0]
+        if key == _EXPERIMENTER_SKIP_KEY:
+            return True
+        if key in (START_KEY, QUIT_KEY):
+            return False
+
+
 def _confirm_exit(win) -> bool:
     confirm = visual.TextStim(
         win,
@@ -96,17 +124,26 @@ def _confirm_exit(win) -> bool:
         return keys[0] == QUIT_KEY
 
 
-def _wait_space_or_exit(win, redraw_stim) -> bool:
+def _wait_space_or_exit(win, redraw_stim) -> str:
+    """Return 'start', 'exit', or 'skip'."""
     while True:
         redraw_stim.draw()
         win.flip()
-        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
+        keys = event.waitKeys(
+            keyList=[START_KEY, QUIT_KEY, _EXPERIMENTER_SKIP_KEY],
+            maxWait=0.5,
+        )
         if not keys:
             continue
-        if keys[0] == START_KEY:
-            return True
-        if keys[0] == QUIT_KEY and _confirm_exit(win):
-            return False
+        key = keys[0]
+        if key == START_KEY:
+            return "start"
+        if key == _EXPERIMENTER_SKIP_KEY:
+            if _experimenter_skip_confirm(win):
+                return "skip"
+            continue
+        if key == QUIT_KEY and _confirm_exit(win):
+            return "exit"
 
 
 def _collect_digit_response(
@@ -118,7 +155,7 @@ def _collect_digit_response(
 ) -> str | None:
     typed = ""
     digit_keys = [str(d) for d in range(10)] + [f"num_{d}" for d in range(10)]
-    key_list = digit_keys + ["backspace", "return", "enter", QUIT_KEY]
+    key_list = digit_keys + ["backspace", "return", "enter", QUIT_KEY, _EXPERIMENTER_SKIP_KEY]
 
     while True:
         plate_stim.draw()
@@ -131,6 +168,10 @@ def _collect_digit_response(
         if not keys:
             continue
         key = keys[0]
+        if key == _EXPERIMENTER_SKIP_KEY:
+            if _experimenter_skip_confirm(win):
+                return "__SKIP__"
+            continue
         if key == QUIT_KEY:
             if _confirm_exit(win):
                 return None
@@ -185,8 +226,12 @@ def run_ishihara_screening(
         wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
         units=USE_UNITS,
     )
-    if not _wait_space_or_exit(win, intro):
+    intro_action = _wait_space_or_exit(win, intro)
+    if intro_action == "exit":
         base["aborted"] = True
+        return base
+    if intro_action == "skip":
+        base["skipped"] = True
         return base
 
     prompt_stim = visual.TextStim(
@@ -234,6 +279,11 @@ def run_ishihara_screening(
         )
         if response is None:
             base["aborted"] = True
+            base["n_errors"] = n_errors
+            base["plates"] = plate_rows
+            return base
+        if response == "__SKIP__":
+            base["skipped"] = True
             base["n_errors"] = n_errors
             base["plates"] = plate_rows
             return base
