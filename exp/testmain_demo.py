@@ -25,6 +25,8 @@ except ImportError:
     serial = None
     list_ports = None
 
+import ishihara_screening as ishihara
+
 RESPONSE_DEVICE_KEYBOARD = "keyboard"
 RESPONSE_DEVICE_CEDRUS = "response_box_cedrus"
 RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
@@ -49,16 +51,8 @@ DEBUG_CONFIG = {
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
-# Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
-DEFAULT_DEVICE_NAME = "KB"
 DEFAULT_COLOR_MAP_LAYOUT = "njk"
 ############################# TO MODIFY ABOVE
-
-if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
-    raise ValueError(
-        f"DEFAULT_DEVICE_NAME must be one of {DEVICE_NAME_CHOICES!r}; got {DEFAULT_DEVICE_NAME!r}."
-    )
-
 
 CODE_VERSION = "v2-2026-08-19"
 EXPERIMENT_NAME = "PMCP"
@@ -82,8 +76,8 @@ COLOR_MAP_LAYOUT = DEFAULT_COLOR_MAP_LAYOUT
 COLOR_MAP_LAYOUT_ASSIGNED = DEFAULT_COLOR_MAP_LAYOUT
 COLOR_MAP_LAYOUT_OVERRIDDEN = False
 RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
-DEVICE_NAME = DEFAULT_DEVICE_NAME
-DEVICE_NAME_ASSIGNED = DEFAULT_DEVICE_NAME
+DEVICE_NAME = "NA"
+DEVICE_NAME_ASSIGNED = "NA"
 DEVICE_NAME_OVERRIDDEN = False
 SRB_FIRMWARE_VERSION: str | None = None
 SRB_DETECTION_WARNING: str | None = None
@@ -95,8 +89,15 @@ GENDER = "NA"
 PARTICIPATION_DAY = 1
 FIRST_SESSION_OF_DAY = True
 SPECIAL_SESSION_NOTE = ""
+SKIP_COLOR_VISION_TEST = False
+ISHIHARA_RESULT: dict | None = None
 
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
+ISHIHARA_DIR = ishihara.ISHIHARA_DIR
+ISHIHARA_PLATES_JSON = ishihara.ISHIHARA_PLATES_JSON
+ISHIHARA_FAIL_ERRORS = ishihara.ISHIHARA_FAIL_ERRORS
+ISHIHARA_PLATE_SIZE_DEG = ishihara.ISHIHARA_PLATE_SIZE_DEG
+ISHIHARA_SOURCE_CITATION = ishihara.ISHIHARA_SOURCE_CITATION
 INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
 INSTRUCTION_FONT_CJK_NAME = "Noto Sans CJK SC"
 INSTRUCTION_LANGUAGE_SUFFIX = {"en": "", "zh": " zh", "da": " da"}
@@ -255,14 +256,15 @@ def _resolve_color_key_mapping_from_dialog(
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
     """Return (assigned_name, used_name, overridden)."""
-    assigned = (
-        _srb_detected_device_name
-        if _srb_detected_device_name is not None
-        else DEFAULT_DEVICE_NAME
-    )
     choice = str(dialog_choice).strip()
     if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
-        return assigned, assigned, False
+        if _srb_detected_device_name is None:
+            raise SystemExit(
+                "Device name is 'as assigned' but no response box was auto-detected. "
+                "Select a device name manually in the dialog."
+            )
+        return _srb_detected_device_name, _srb_detected_device_name, False
+    assigned = _srb_detected_device_name or choice
     if choice not in DEVICE_NAME_CHOICES:
         raise SystemExit(
             f"Device name must be '{DEVICE_NAME_AUTO_CHOICE}' or one of {DEVICE_NAME_CHOICES!r}; "
@@ -1100,6 +1102,21 @@ def _build_metadata(
             "handedness": HANDEDNESS,
             "color_vision": COLOR_VISION,
             "eye_vision": EYE_VISION,
+            "ishihara_skipped": (
+                None if ISHIHARA_RESULT is None else bool(ISHIHARA_RESULT.get("skipped"))
+            ),
+            "ishihara_passed": (
+                None if ISHIHARA_RESULT is None else ISHIHARA_RESULT.get("passed")
+            ),
+            "ishihara_n_errors": (
+                None if ISHIHARA_RESULT is None else ISHIHARA_RESULT.get("n_errors")
+            ),
+            "ishihara_fail_threshold": ISHIHARA_FAIL_ERRORS,
+            "ishihara_prior_standalone": (
+                None
+                if ISHIHARA_RESULT is None
+                else ISHIHARA_RESULT.get("prior_standalone")
+            ),
             "participation_day": PARTICIPATION_DAY,
             "first_session_of_day": "Y" if FIRST_SESSION_OF_DAY else "N",
             "practice": "Y" if SESSION <= N_PRACTICE_SESSIONS else "N",
@@ -1115,7 +1132,7 @@ def _build_metadata(
             "device_name": DEVICE_NAME,
             "device_name_assigned": DEVICE_NAME_ASSIGNED,
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
-            "default_device_name_in_code": DEFAULT_DEVICE_NAME,
+            "srb_auto_detected_device_name": _srb_detected_device_name,
             "srb_firmware_version": SRB_FIRMWARE_VERSION,
             "srb_detection_warning": SRB_DETECTION_WARNING,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
@@ -1783,7 +1800,7 @@ if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get
     elif _srb_detection_warning:
         print(f"SRB detection warning: {_srb_detection_warning}")
 
-# Dialog default for Device name: use auto-detected SRB name if available, else fall back to config
+# Dialog default for Device name: use auto-detected SRB name if available, else "as assigned"
 _dialog_default_device_name = (
     _srb_detected_device_name
     if _srb_detected_device_name is not None
@@ -1875,6 +1892,12 @@ session_dlg.addField(
     tip="Auto-derived from data; change if incorrect.",
 )
 session_dlg.addField(
+    "Skip color vision test?",
+    initial="no",
+    choices=["no", "yes"],
+    tip="Session 1 only. Default no runs Ishihara screening; yes skips it.",
+)
+session_dlg.addField(
     "Color key mapping",
     initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
     choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
@@ -1940,19 +1963,20 @@ if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
 # Section 3: experimenter only
+SKIP_COLOR_VISION_TEST = str(session_dlg.data[9]).strip().lower() == "yes"
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
-    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
+    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[10])
 )
 apply_color_key_mapping(COLOR_KEY_MAPPING)
-RESPONSE_DEVICE = session_dlg.data[10]
+RESPONSE_DEVICE = session_dlg.data[11]
 DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name_from_dialog(
-    session_dlg.data[11]
+    session_dlg.data[12]
 )
 COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
-    _resolve_color_map_layout_from_dialog(session_dlg.data[12])
+    _resolve_color_map_layout_from_dialog(session_dlg.data[13])
 )
-MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
-SPECIAL_SESSION_NOTE = str(session_dlg.data[14]).strip()
+MONITOR_NAME = str(session_dlg.data[14]).strip() or DEFAULT_MONITOR_NAME
+SPECIAL_SESSION_NOTE = str(session_dlg.data[15]).strip()
 
 # Collect log entries for any defaults that were manually changed
 _SESSION_START_LOG_EXTRAS: list[str] = []
@@ -2450,9 +2474,131 @@ def _set_feedback4_text(trial):
     )
 
 
+def _load_ishihara_plate_defs() -> list[dict]:
+    return ishihara.load_plate_defs()
+
+
+def _ishihara_result_path() -> Path:
+    return PARTICIPANT_DATA_DIR / f"{DATA_FILE_STEM}_ishihara.json"
+
+
+def _write_ishihara_result(result: dict) -> Path:
+    return ishihara.write_result(_ishihara_result_path(), result)
+
+
+def _run_ishihara_screening() -> dict:
+    """Session-1 wrapper around shared screening."""
+    return ishihara.run_ishihara_screening(
+        win,
+        participant=PARTICIPANT,
+        session=SESSION,
+        source_mode="session1_experiment",
+    )
+
+
+def _maybe_run_session1_ishihara_screening() -> None:
+    """Session-1 Ishihara gate: skip / pass continue; fail stops experiment."""
+    global COLOR_VISION, ISHIHARA_RESULT
+
+    if SESSION != 1:
+        return
+
+    log_path = ishihara.session_log_path(PARTICIPANT_DATA_DIR, PARTICIPANT)
+    prior = ishihara.load_standalone_result(PARTICIPANT_DATA_DIR, PARTICIPANT)
+    if prior is not None:
+        _SESSION_START_LOG_EXTRAS.append(
+            "  Prior standalone Ishihara found: "
+            f"passed={prior.get('passed')!r}, failed={prior.get('failed')!r}, "
+            f"n_errors={prior.get('n_errors')!r}, "
+            f"ColorVision={prior.get('color_vision')!r}, "
+            f"timestamp={prior.get('timestamp')!r}"
+        )
+
+    if SKIP_COLOR_VISION_TEST:
+        ISHIHARA_RESULT = {
+            "skipped": True,
+            "aborted": False,
+            "passed": None,
+            "failed": None,
+            "n_errors": None,
+            "fail_threshold": ISHIHARA_FAIL_ERRORS,
+            "plates": [],
+            "source": ISHIHARA_SOURCE_CITATION,
+            "source_mode": "session1_experiment",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "participant": PARTICIPANT,
+            "session": SESSION,
+            "color_vision": COLOR_VISION,
+            "dialog_color_vision": COLOR_VISION,
+            "prior_standalone": prior,
+        }
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening skipped (experimenter option). Wrote {out_path}")
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Ishihara screening skipped; ColorVision={COLOR_VISION!r}"
+        )
+        return
+
+    ISHIHARA_RESULT = _run_ishihara_screening()
+    ISHIHARA_RESULT["prior_standalone"] = prior
+
+    if ISHIHARA_RESULT.get("aborted"):
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening aborted. Wrote {out_path}")
+        win.close()
+        core.quit()
+
+    if ISHIHARA_RESULT.get("failed"):
+        COLOR_VISION = "not normal"
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening FAILED. Wrote {out_path}")
+        fail_text = visual.TextStim(
+            win,
+            text=(
+                "Color vision screening: NOT NORMAL\n\n"
+                f"Errors on scored plates: {ISHIHARA_RESULT.get('n_errors')} "
+                f"(fail if ≥ {ISHIHARA_FAIL_ERRORS})\n\n"
+                "This session will stop.\n"
+                "Please call the experimenter.\n\n"
+                "Press SPACE or ESC to exit."
+            ),
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            height=INSTRUCTION_LETTER_SIZE_DEG,
+            wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+            units=USE_UNITS,
+        )
+        fail_text.draw()
+        win.flip()
+        event.waitKeys(keyList=[START_KEY, QUIT_KEY])
+        win.close()
+        core.quit()
+
+    COLOR_VISION = "normal"
+    ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+    out_path = _write_ishihara_result(ISHIHARA_RESULT)
+    ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+    print(
+        f"Ishihara screening passed "
+        f"({ISHIHARA_RESULT.get('n_errors')} errors; threshold {ISHIHARA_FAIL_ERRORS}). "
+        f"Wrote {out_path}"
+    )
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Ishihara screening passed; n_errors={ISHIHARA_RESULT.get('n_errors')}; "
+        f"ColorVision={COLOR_VISION!r}"
+    )
+
+
 # =============================================================================
 # EXPERIMENT START
 # =============================================================================
+
+_maybe_run_session1_ishihara_screening()
 
 if INCLUDE_BURNIN:
     if not _show_instruction_text(
