@@ -1,0 +1,21 @@
+NY SESSION — EFTER BASELINE
+
+Du har nu afsluttet baseline-sessionerne. Fra denne session er opgaven anderledes.
+
+Ud over at vælge cirklen med det højeste belønningsciffer skal du nogle gange give et andet svar:
+
+På nogle forsøg vil en cirkel have en STIPPLET HVID KONTUR (DASHED WHITE OUTLINE) i stedet for den normale faste kant (cirklen beholder sin normale farve og belønningsciffer). Når du ser en DASHED WHITE OUTLINE, skal du trykke C med din VENSTRE LANGFINGER i stedet for farvetasten. Et korrekt svar giver 5 bonuspoint.
+
+__________
+
+LØBENDE OPGAVE (samme cirkelvalg som før):
+
+Tre farvede cirkler kan vises med et eller to belønningscifre. Vælg cirklen med den højeste belønning:
+
+{COLOR_KEY_LINE}
+
+Farve-tast-tilknytningen vises ikke på skærmen under eksperimentet.
+
+__________
+
+Tryk på *space* for at begynde.
