@@ -1776,6 +1776,40 @@ def _load_pm_practice_instruction(
     )
 
 
+def _burnin_intro_cue_for_phase(session_phase: str) -> str | None:
+    """Return orange ring / dashed stem for PM burn-in intros, or None for baseline."""
+    if session_phase == "focal_pm":
+        return "orange ring"
+    if session_phase == "nonfocal_pm":
+        return "dashed"
+    return None
+
+
+def _load_burnin_intro_instruction(
+    burnin_source_phase: str, language: str = "en"
+) -> str:
+    """Burn-in intro matched to yesterday's task (baseline vs focal vs nonfocal PM)."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _burnin_intro_cue_for_phase(burnin_source_phase)
+    if cue is None:
+        stem = "instruction burnin intro"
+    else:
+        stem = f"instruction burnin intro {cue}"
+    base = f"{stem}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(_resolve_instruction_filename(base))
+
+
+def _show_burnin_intro_instruction(burnin_source_phase: str):
+    """Burn-in intro with en/zh/da switcher; experimenter may skip the block."""
+    return _show_instruction_with_language_switch(
+        lambda language: _load_burnin_intro_instruction(
+            burnin_source_phase, language
+        ),
+        allow_experimenter_skip=True,
+    )
+
+
 def _show_pm_practice_instruction(session: int, participant_id: str) -> bool:
     """PM practice intro with en/zh/da switcher on phase-transition sessions."""
     if session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
@@ -2552,10 +2586,14 @@ def _show_instruction_with_language_switch(
     load_body,
     *,
     initial_language: str | None = None,
-) -> bool:
+    allow_experimenter_skip: bool = False,
+):
     """Show instruction text with en/zh/da switcher line separated above the body."""
     global SESSION1_INSTRUCTION_LANGUAGE
     language = initial_language or SESSION1_INSTRUCTION_LANGUAGE
+    key_list = [START_KEY, QUIT_KEY, "c", "d", "e"]
+    if allow_experimenter_skip:
+        key_list.append(_EXPERIMENTER_SKIP_KEY)
     while True:
         body = load_body(language)
         _set_instruction_display(
@@ -2567,7 +2605,7 @@ def _show_instruction_with_language_switch(
         instructions.draw()
         win.flip()
         while True:
-            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
+            keys = event.waitKeys(keyList=key_list, maxWait=0.5)
             if not keys:
                 instructions.draw()
                 win.flip()
@@ -2582,6 +2620,12 @@ def _show_instruction_with_language_switch(
             if key == "e" and language != "en":
                 language = "en"
                 break
+            if allow_experimenter_skip and key == _EXPERIMENTER_SKIP_KEY:
+                if _experimenter_skip_confirm(
+                    "Skip burn-in block?\n\nPress SPACE to continue the block."
+                ):
+                    return "skip"
+                continue
             if key == START_KEY:
                 SESSION1_INSTRUCTION_LANGUAGE = language
                 return True
@@ -2836,15 +2880,7 @@ def _maybe_run_session1_ishihara_screening() -> None:
 _maybe_run_session1_ishihara_screening()
 
 if INCLUDE_BURNIN:
-    _set_instruction_display(
-        _load_instruction(_resolve_instruction_filename("instruction burnin intro")),
-    )
-    instructions.draw()
-    win.flip()
-    _burnin_intro_action = _wait_space_or_exit(
-        redraw_stim=instructions,
-        allow_experimenter_skip=True,
-    )
+    _burnin_intro_action = _show_burnin_intro_instruction(BURNIN_SOURCE_PHASE)
     if _burnin_intro_action is False:
         win.close()
         core.quit()

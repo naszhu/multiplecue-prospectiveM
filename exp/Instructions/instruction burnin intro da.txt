@@ -1,0 +1,15 @@
+GENVINDING
+
+Inden dagens session begynder, skal du gennemføre en kort øvelse, så du kan komme tilbage i opgavens rytme efter pausen.
+
+Opgaven er den samme som sidst: vælg cirklen med det højeste belønningsciffer, og tryk på den tilsvarende farvetast.
+
+Farve-tast-tilknytningen vises på skærmen under denne øvelse (farvede firkanter under cirklerne).
+
+Disse forsøgsrunder er kun til genvinding og tæller ikke med i de eksperimentelle data. Point optjent her tilføjes dog stadig din samlede belønning og tæller med i den endelige udbetaling.
+
+Denne øvelse består af 20 forsøgsrunder.
+
+__________
+
+Tryk på *space* for at begynde.
