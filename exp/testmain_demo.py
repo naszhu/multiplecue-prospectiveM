@@ -1758,17 +1758,44 @@ def _load_session1_instruction(language: str = "en") -> str:
     )
 
 
-def _load_pm_practice_instruction(session: int, participant_id: str) -> str:
+def _load_pm_practice_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
     """Instruction at session start when a practice block precedes the main session."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
     cue = _secondary_cue_label(session, participant_id)
     if session == FIRST_PM_SESSION:
-        base = f"instruction practice after baseline {cue}"
+        stem = f"instruction practice after baseline {cue}"
     else:
-        base = f"instruction practice new cue {cue}"
+        stem = f"instruction practice new cue {cue}"
+    base = f"{stem}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
     return _load_instruction(
         _resolve_instruction_filename(base),
-        **_instruction_color_fmt(),
+        **_instruction_color_fmt(language),
     )
+
+
+def _show_pm_practice_instruction(session: int, participant_id: str) -> bool:
+    """PM practice intro with en/zh/da switcher on phase-transition sessions."""
+    if session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+        return _show_instruction_with_language_switch(
+            lambda language: _load_pm_practice_instruction(
+                session, participant_id, language
+            ),
+        )
+    return _show_instruction_text(
+        _load_pm_practice_instruction(session, participant_id)
+    )
+
+
+def _show_session_start_instruction(session: int, participant_id: str) -> bool:
+    """First instruction at session open (PM practice intro or normal session intro)."""
+    if session_needs_pm_practice_block(session):
+        return _show_pm_practice_instruction(session, participant_id)
+    if _uses_phase_transition_language_switch(session):
+        return _show_session_instruction(session, participant_id)
+    return _show_instruction_text(_load_session_instruction(session, participant_id))
 
 
 def _load_session_instruction(
@@ -1787,14 +1814,29 @@ def _load_session_instruction(
         base = "instruction ses 5"
     elif session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
         base = "instruction ses 6 onward"
+    elif session == FIRST_PM_SESSION:
+        return _load_after_baseline_session_instruction(
+            session, participant_id, language
+        )
     elif session == FIRST_SECOND_PM_PHASE_SESSION:
         return _load_new_cue_session_instruction(session, participant_id, language)
     else:
         cue = _secondary_cue_label(session, participant_id)
-        if session == FIRST_PM_SESSION:
-            base = f"instruction ses after baseline {cue}"
-        else:
-            base = f"instruction ses continue {cue}"
+        base = f"instruction ses continue {cue}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(language),
+    )
+
+
+def _load_after_baseline_session_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
+    """Load baseline→PM transition instruction text for en / zh / da."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _secondary_cue_label(session, participant_id)
+    base = f"instruction ses after baseline {cue}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
     return _load_instruction(
         _resolve_instruction_filename(base),
         **_instruction_color_fmt(language),
@@ -1815,8 +1857,13 @@ def _load_new_cue_session_instruction(
     )
 
 
+def _uses_phase_transition_language_switch(session: int) -> bool:
+    """Sessions 13 and 20: main phase-change instructions with en/zh/da switcher."""
+    return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
+
+
 def _uses_new_cue_language_switch(session: int) -> bool:
-    return session == FIRST_SECOND_PM_PHASE_SESSION
+    return _uses_phase_transition_language_switch(session)
 
 
 def _load_session_start_instruction(session: int, participant_id: str) -> str:
@@ -2545,7 +2592,7 @@ def _show_instruction_with_language_switch(
 
 
 def _show_session_instruction(session: int, participant_id: str) -> bool:
-    if _uses_new_cue_language_switch(session):
+    if _uses_phase_transition_language_switch(session):
         return _show_instruction_with_language_switch(
             lambda language: _load_session_instruction(
                 session, participant_id, language=language
@@ -2811,7 +2858,7 @@ elif SESSION == 1:
     if not _show_session1_first_instruction():
         win.close()
         core.quit()
-elif not _show_instruction_text(_load_session_start_instruction(SESSION, PARTICIPANT)):
+elif not _show_session_start_instruction(SESSION, PARTICIPANT):
     win.close()
     core.quit()
 
@@ -2851,9 +2898,7 @@ for trial in trials:
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == PM_PRACTICE_BLOCK_NUMBER:
-            if not _show_instruction_text(
-                _load_pm_practice_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_pm_practice_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
