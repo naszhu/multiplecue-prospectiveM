@@ -76,7 +76,14 @@ def main() -> int:
         ishihara.write_result(result_path, result)
         ishihara.append_session_log(log_path, ishihara.format_session_log_lines(result))
 
-        if result.get("aborted"):
+        if result.get("skipped"):
+            msg = (
+                f"Color vision screening skipped.\n\n"
+                f"Result saved for subject {participant}.\n"
+                "Press SPACE or ESC to exit."
+            )
+            exit_code = 0
+        elif result.get("aborted"):
             msg = (
                 f"Color vision screening aborted.\n\n"
                 f"Result saved for subject {participant}.\n"
@@ -114,7 +121,11 @@ def main() -> int:
         win.flip()
         event.waitKeys(keyList=[ishihara.START_KEY, ishihara.QUIT_KEY])
 
-        status = "aborted" if exit_code == 1 else ("FAILED" if exit_code == 2 else "Passed")
+        status = (
+            "skipped"
+            if result.get("skipped")
+            else ("aborted" if exit_code == 1 else ("FAILED" if exit_code == 2 else "Passed"))
+        )
         print(f"{status}. Wrote {result_path}")
         print(f"Appended to session log: {log_path}")
         return exit_code

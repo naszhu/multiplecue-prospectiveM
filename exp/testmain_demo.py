@@ -2544,6 +2544,17 @@ def _maybe_run_session1_ishihara_screening() -> None:
     ISHIHARA_RESULT = _run_ishihara_screening()
     ISHIHARA_RESULT["prior_standalone"] = prior
 
+    if ISHIHARA_RESULT.get("skipped"):
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        ISHIHARA_RESULT["dialog_color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening skipped. Wrote {out_path}")
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Ishihara screening skipped; ColorVision={COLOR_VISION!r}"
+        )
+        return
+
     if ISHIHARA_RESULT.get("aborted"):
         ISHIHARA_RESULT["color_vision"] = COLOR_VISION
         out_path = _write_ishihara_result(ISHIHARA_RESULT)
