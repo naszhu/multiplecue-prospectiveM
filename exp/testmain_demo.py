@@ -586,6 +586,12 @@ MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
 MONITOR_CHOICES = [f"room1_a{i}" for i in range(1, 11)]
 MONITOR_NAME = DEFAULT_MONITOR_NAME
+EXPECTED_REFRESH_HZ = 100
+REFRESH_RATE_TOLERANCE_HZ = 10
+MEASURED_REFRESH_RATE = 0.0
+ACTUAL_WIN_SIZE_PIX = WIN_SIZE_PIX
+DISPLAY_CHECK_SPEC_OK = True
+DISPLAY_CHECK_MISMATCH_CONTINUED = False
 USE_UNITS = "deg"
 CIRCLE_EDGES = 200
 
@@ -1137,6 +1143,18 @@ def _build_metadata(
             "self_made_response_box_pin_to_key": dict(SELF_MADE_PIN_TO_KEY),
             "pm_key": PM_KEY,
             "response_deadline": RESPONSE_DEADLINE,
+            "startup_display_check_description": (
+                "After Window open, compare actual win.size to WIN_SIZE_PIX and "
+                "win.getActualFrameRate() to expected Hz; on mismatch, C continues and ESC exits."
+            ),
+            "fixed_refresh_rate_expected_hz": EXPECTED_REFRESH_HZ,
+            "measured_refresh_rate_hz": MEASURED_REFRESH_RATE,
+            "expected_resolution_px": list(WIN_SIZE_PIX),
+            "actual_window_size_px": list(ACTUAL_WIN_SIZE_PIX),
+            "display_check_passed_spec": "Y" if DISPLAY_CHECK_SPEC_OK else "N",
+            "continued_after_mismatch_warning": (
+                "Y" if DISPLAY_CHECK_MISMATCH_CONTINUED else "N"
+            ),
             "monitor_name": MONITOR_NAME,
             "monitor_set_size_pixels": list(WIN_SIZE_PIX),
             "monitor_width_cm": MONITOR_WIDTH_CM,
@@ -2080,6 +2098,47 @@ if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
 # WINDOW AND STIMULI
 # =============================================================================
 
+
+def _run_startup_display_check(win) -> tuple[float, tuple[int, int], bool, bool]:
+    """Require ~EXPECTED_REFRESH_HZ Hz and WIN_SIZE_PIX; if not, show warning and wait for C or ESC."""
+    actual = tuple(int(round(x)) for x in win.size)
+    try:
+        measured = float(win.getActualFrameRate())
+    except Exception:
+        measured = 0.0
+    res_ok = actual == tuple(WIN_SIZE_PIX)
+    hz_ok = measured > 0 and abs(measured - EXPECTED_REFRESH_HZ) <= REFRESH_RATE_TOLERANCE_HZ
+    spec_ok = res_ok and hz_ok
+    mismatch_continued = False
+    if not spec_ok:
+        msg = (
+            f"Display check failed.\n\n"
+            f"Expected: {WIN_SIZE_PIX[0]} x {WIN_SIZE_PIX[1]} px, "
+            f"~{EXPECTED_REFRESH_HZ} Hz (±{REFRESH_RATE_TOLERANCE_HZ} Hz).\n\n"
+            f"Actual window size (px): {actual[0]} x {actual[1]}\n"
+            f"Measured refresh rate: {measured:.2f} Hz\n\n"
+            "Press C to continue anyway.\nPress ESCAPE to exit."
+        )
+        warn = visual.TextStim(
+            win,
+            text=msg,
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            height=0.5,
+            units=USE_UNITS,
+            wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        )
+        warn.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=["c", "escape"])
+        if not keys or keys[0] == "escape":
+            win.close()
+            core.quit()
+            raise SystemExit("Display check: user chose exit.")
+        mismatch_continued = True
+    return measured, actual, spec_ok, mismatch_continued
+
+
 mon = monitors.Monitor(MONITOR_NAME)
 mon.setSizePix(WIN_SIZE_PIX)
 mon.setWidth(MONITOR_WIDTH_CM)
@@ -2094,6 +2153,13 @@ win = visual.Window(
     monitor=mon,
 )
 win.setMouseVisible(False)
+
+(
+    MEASURED_REFRESH_RATE,
+    ACTUAL_WIN_SIZE_PIX,
+    DISPLAY_CHECK_SPEC_OK,
+    DISPLAY_CHECK_MISMATCH_CONTINUED,
+) = _run_startup_display_check(win)
 
 fixation = visual.TextStim(
     win,
