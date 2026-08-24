@@ -41,10 +41,10 @@ DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6
 COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
-    "enabled": True,
+    "enabled": False,
     "trial_duration": 0.001,  # Fixation / stimulus / response / feedback / ITI when auto_advance_trials.
-    "auto_advance_trials": True,  # Auto-answer and flash through trials; stop at the next instruction.
-    "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
+    "auto_advance_trials": True,  # Auto-answer trials; same schedule as normal, faster timing only.
+    "auto_advance_instructions": True,  # Skip SPACE on instruction / language / block-break / end screens.
     "skip_survey": False,  # Skip the 5 end-of-session survey questions.
     "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": False,
@@ -1703,49 +1703,6 @@ def build_session_trials(
     return trials
 
 
-def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list:
-    """
-    Debug PM smoke session: 12 trials, all pre-assigned at build time.
-
-    Trials 1-6 (block 1): focal PM, one per cue condition — order shuffled within block.
-    Trials 7-12 (block 2): nonfocal PM, one per cue condition — order shuffled within block.
-
-    Each trial draws a random reward-position/color variant from its cue pool and a random
-    pm_position, so every cue condition and both PM kinds can be tested quickly.
-    """
-    rng = random.Random(f"debug-pm-{participant_id}-{session_number}")
-    trials = []
-    trial_in_session = 0
-
-    for block_number, pm_kind in ((1, "focal"), (2, "nonfocal")):
-        session_phase = "focal_pm" if pm_kind == "focal" else "nonfocal_pm"
-        block_trials = []
-        for cue_index, _cue_condition in enumerate(CUE_CONDITIONS):
-            pool = _pool_for_cue_condition(_cue_condition, center=False)
-            stub = {
-                "session_phase": session_phase,
-                "is_pm_trial": True,
-                "pm_trial_kind": pm_kind,
-                "pm_position": rng.choice(POSITION_NAMES),
-                "warm_up": 0,
-                "burn_in_block": 0,
-            }
-            _apply_variant_to_stub(stub, rng.choice(pool), single_center=False)
-            block_trials.append(stub)
-        rng.shuffle(block_trials)
-        for trial_in_block, trial in enumerate(block_trials, start=1):
-            trial_in_session += 1
-            trials.append(
-                {
-                    **trial,
-                    "block": block_number,
-                    "trial_in_block": trial_in_block,
-                    "trial_in_session": trial_in_session,
-                }
-            )
-    return trials
-
-
 def _instruction_device_suffix() -> str:
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
         return " self-made-response-box"
@@ -2242,22 +2199,15 @@ BURNIN_SOURCE_PHASE, BURNIN_SOURCE_SESSION = (
     _burnin_source_for_session(SESSION, PARTICIPANT) if INCLUDE_BURNIN else (None, None)
 )
 BURNIN_SKIPPED = False
-INCLUDE_PM_PRACTICE = (
-    session_needs_pm_practice_block(SESSION) and not DEBUG_CONFIG["enabled"]
-)
+INCLUDE_PM_PRACTICE = session_needs_pm_practice_block(SESSION)
 
-if DEBUG_CONFIG["enabled"]:
-    # Short PM test session: trials 1-6 focal PM, 7-12 nonfocal PM (one per cue condition).
-    SESSION_PHASE = "focal_pm"
-    trials = build_debug_pm_test_trials(PARTICIPANT, SESSION)
-else:
-    trials = build_session_trials(
-        SESSION_PHASE,
-        SESSION,
-        PARTICIPANT,
-        include_burnin_block=INCLUDE_BURNIN,
-        include_pm_practice_block=INCLUDE_PM_PRACTICE,
-    )
+trials = build_session_trials(
+    SESSION_PHASE,
+    SESSION,
+    PARTICIPANT,
+    include_burnin_block=INCLUDE_BURNIN,
+    include_pm_practice_block=INCLUDE_PM_PRACTICE,
+)
 N_TRIALS = len(trials)
 SESSION_TRIAL_CONFIG = get_session_trial_config(SESSION)
 SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else SESSION_TRIAL_CONFIG["n_blocks"]
@@ -2275,7 +2225,8 @@ simulate_response_box = (
 )
 if _debug_enabled():
     print(
-        "DEBUG: "
+        "DEBUG: full session trial schedule; "
+        f"n_trials={len(trials)} n_blocks={max(t['block'] for t in trials) if trials else 0} "
         f"auto_advance_trials={_debug_flag('auto_advance_trials')} "
         f"auto_advance_instructions={_debug_flag('auto_advance_instructions')} "
         f"skip_survey={_debug_flag('skip_survey')} "
