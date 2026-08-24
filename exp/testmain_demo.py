@@ -1031,6 +1031,9 @@ def _build_metadata(
             "burnin_block_included": include_burnin_block,
             "burnin_trials_per_block": BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0,
             "burnin_block_number": BURNIN_BLOCK_NUMBER if include_burnin_block else None,
+            "burnin_source_session": BURNIN_SOURCE_SESSION,
+            "burnin_source_phase": BURNIN_SOURCE_PHASE,
+            "burnin_skipped_by_experimenter": BURNIN_SKIPPED if include_burnin_block else None,
             "burnin_eligibility_note": (
                 "Burn-in block included when session >= 6, first session of day, and participation day > 1."
             ),
@@ -1408,6 +1411,14 @@ def _apply_variant_to_stub(stub: dict, variant: dict, *, single_center: bool = F
     stub["single_center"] = single_center
 
 
+def _burnin_source_for_session(session_number: int, participant_id: str) -> tuple[str, int]:
+    """Phase and session number for burn-in trials (last session's task on phase change)."""
+    if session_number in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+        source_session = session_number - 1
+        return session_phase_for(source_session, participant_id), source_session
+    return session_phase_for(session_number, participant_id), session_number
+
+
 def _should_include_burnin_block(
     session: int, first_session_of_day: bool, participation_day: int
 ) -> bool:
@@ -1562,7 +1573,10 @@ def build_session_trials(
     trial_in_session = 0
 
     if include_burnin_block:
-        burnin_block = _make_burnin_block(rng, session_phase, session_number)
+        burnin_phase, burnin_session = _burnin_source_for_session(
+            session_number, participant_id
+        )
+        burnin_block = _make_burnin_block(rng, burnin_phase, burnin_session)
         for trial_in_block, trial in enumerate(burnin_block, start=1):
             trial = dict(trial)
             trial.update(
@@ -2076,6 +2090,10 @@ DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = _should_include_burnin_block(
     SESSION, FIRST_SESSION_OF_DAY, PARTICIPATION_DAY
 )
+BURNIN_SOURCE_PHASE, BURNIN_SOURCE_SESSION = (
+    _burnin_source_for_session(SESSION, PARTICIPANT) if INCLUDE_BURNIN else (None, None)
+)
+BURNIN_SKIPPED = False
 INCLUDE_PM_PRACTICE = (
     session_needs_pm_practice_block(SESSION) and not DEBUG_CONFIG["enabled"]
 )
@@ -2391,24 +2409,70 @@ def _confirm_exit_or_continue():
             return bool(keys[0] == QUIT_KEY)
 
 
-def _wait_space_or_exit(redraw_stim=None):
-    """Wait for SPACE (return True) or ESC (return False).
+_EXPERIMENTER_SKIP_KEY = "p"
 
-    If *redraw_stim* is given it is redrawn and flipped every ~0.5 s so the
-    display stays active during long pauses (prevents screen blank on Linux).
-    """
+
+def _experimenter_skip_confirm(
+    prompt: str = "Skip this block?\n\nPress SPACE to continue.",
+) -> bool:
+    """Experimenter-only two-step skip confirm (second P confirms)."""
+    confirm = visual.TextStim(
+        win,
+        text=prompt,
+        color=COLORS["white"],
+        colorSpace=COLOR_SPACE,
+        height=INSTRUCTION_LETTER_SIZE_DEG,
+        wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        units=USE_UNITS,
+    )
+    while True:
+        confirm.draw()
+        win.flip()
+        keys = event.waitKeys(
+            keyList=[_EXPERIMENTER_SKIP_KEY, START_KEY, QUIT_KEY],
+            maxWait=0.5,
+        )
+        if not keys:
+            continue
+        key = keys[0]
+        if key == _EXPERIMENTER_SKIP_KEY:
+            return True
+        if key in (START_KEY, QUIT_KEY):
+            return False
+
+
+def _poll_experimenter_burnin_skip() -> bool:
+    """Return True when experimenter confirmed skipping the burn-in block."""
+    keys = event.getKeys(keyList=[_EXPERIMENTER_SKIP_KEY])
+    if not keys:
+        return False
+    return _experimenter_skip_confirm(
+        "Skip burn-in block?\n\nPress SPACE to continue the block."
+    )
+
+
+def _wait_space_or_exit(redraw_stim=None, *, allow_experimenter_skip: bool = False):
+    """Wait for SPACE (return True), ESC (return False), or optional experimenter skip."""
     while True:
         if redraw_stim is not None:
             redraw_stim.draw()
             win.flip()
-        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
+        key_list = [START_KEY, QUIT_KEY]
+        if allow_experimenter_skip:
+            key_list.append(_EXPERIMENTER_SKIP_KEY)
+        keys = event.waitKeys(keyList=key_list, maxWait=0.5)
         if not keys:
             continue
         if keys[0] == START_KEY:
             return True
+        if allow_experimenter_skip and keys[0] == _EXPERIMENTER_SKIP_KEY:
+            if _experimenter_skip_confirm(
+                "Skip burn-in block?\n\nPress SPACE to continue the block."
+            ):
+                return "skip"
+            continue
         if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
             return False
-        # After returning from exit confirm, redraw stim and continue waiting
         if redraw_stim is not None:
             redraw_stim.draw()
             win.flip()
@@ -2725,11 +2789,21 @@ def _maybe_run_session1_ishihara_screening() -> None:
 _maybe_run_session1_ishihara_screening()
 
 if INCLUDE_BURNIN:
-    if not _show_instruction_text(
-        _load_instruction(_resolve_instruction_filename("instruction burnin intro"))
-    ):
+    _set_instruction_display(
+        _load_instruction(_resolve_instruction_filename("instruction burnin intro")),
+    )
+    instructions.draw()
+    win.flip()
+    _burnin_intro_action = _wait_space_or_exit(
+        redraw_stim=instructions,
+        allow_experimenter_skip=True,
+    )
+    if _burnin_intro_action is False:
         win.close()
         core.quit()
+    elif _burnin_intro_action == "skip":
+        BURNIN_SKIPPED = True
+        _SESSION_START_LOG_EXTRAS.append("  Burn-in block skipped (experimenter).")
 elif SESSION == 1:
     if _show_language_selection_screen() is None:
         win.close()
@@ -2759,6 +2833,18 @@ print(f"Metadata will be saved to: {_out_metadata_path}")
 
 for trial in trials:
     current_block = trial["block"]
+    if trial.get("burn_in_block"):
+        if BURNIN_SKIPPED:
+            prev_block = current_block
+            continue
+        if _poll_experimenter_burnin_skip():
+            BURNIN_SKIPPED = True
+            _append_session_log(_log_path, [
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  "
+                "Burn-in block skipped (experimenter)."
+            ])
+            prev_block = current_block
+            continue
     if prev_block is not None and current_block != prev_block:
         if prev_block == PM_PRACTICE_BLOCK_NUMBER and current_block == 1:
             if not _show_session_instruction(SESSION, PARTICIPANT):
