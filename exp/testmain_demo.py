@@ -43,11 +43,11 @@ COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,  # Fixation / stimulus / response / feedback / ITI when auto_advance_trials.
-    "auto_advance_trials": True,  # Auto-answer trials; same schedule as normal, faster timing only.
-    "auto_advance_instructions": True,  # Skip SPACE on instruction / language / block-break / end screens.
+    "auto_advance_trials": False,  # Auto-answer trials; same schedule as normal, faster timing only.
+    "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
     "skip_survey": False,  # Skip the 5 end-of-session survey questions.
-    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
-    "full_screen": False,
+    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
+    "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
