@@ -1,7 +1,7 @@
 """
 PsychoPy version of the multiple-cue prospective memory experiment.
 
-Full session structure: 23 sessions (5 practice + 6 baseline + 6 focal PM + 6 nonfocal PM).
+Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
 Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
 Supports keyboard or self-made serial response box.
 """
@@ -117,8 +117,8 @@ STIMULUS_OPACITY = 1.0
 
 # Session / phase design (see design.md)
 N_PRACTICE_SESSIONS = 5
-N_BASELINE_SESSIONS = 6
-N_PM_SESSIONS_PER_KIND = 6
+N_BASELINE_SESSIONS = 7
+N_PM_SESSIONS_PER_KIND = 7
 N_CUE_CONDITIONS = 6
 N_BLOCKS = 9
 TOTAL_TRIALS_PER_SESSION = 396
@@ -146,7 +146,7 @@ OTHER_WARMUP_TRIALS = 0
 BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
 PM_PRACTICE_BLOCK_NUMBER = -1
-# First PM session = 5 practice + 6 baseline + 1; second PM phase starts 6 sessions later.
+# Session 13 = first PM session; session 20 = first session of second PM phase (5+7=12, +1=13, +7=20).
 FIRST_PM_SESSION = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 1
 FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
@@ -1247,7 +1247,7 @@ def session_phase_for(session: int, participant_id: str) -> str:
 
 
 def session_needs_pm_practice_block(session: int) -> bool:
-    """One PM practice block at the first session of each PM phase (baseline→PM A, PM A→PM B)."""
+    """One PM practice block at session 13 (baseline→PM A) and session 20 (PM A→PM B)."""
     return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
 
 
