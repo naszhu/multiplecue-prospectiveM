@@ -43,7 +43,7 @@ DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,
     "auto_advance_instructions": False,
-    "simulate_response_box": True,  # Use keyboard instead of serial when self-made box is selected.
+    "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "12"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
