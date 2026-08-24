@@ -2,7 +2,9 @@ PRACTICE 4
 
 The procedure remains the same as in the previous session.
 
-The color-key mapping is no longer shown on the screen. You must rely on the associations you have learned: Red = N, Blue = J, Green = K.
+The color-key mapping is no longer shown on the screen. You must rely on the associations you have learned:
+
+{COLOR_KEY_LINE}
 
 Try to collect as many points as possible.
 

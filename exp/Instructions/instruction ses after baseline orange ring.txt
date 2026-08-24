@@ -12,7 +12,7 @@ ONGOING TASK (same circle choice as before):
 
 Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen during the experiment.
 

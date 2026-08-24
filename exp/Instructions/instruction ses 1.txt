@@ -10,7 +10,11 @@ Your task is to report the color of the circle by pressing one of three keys: N,
 
 Rest your right hand naturally on the keyboard, with your index finger on N, your middle finger on J, and your ring finger on K.
 
-The keys are associated with three colors: Red (N), Blue (J), and Green (K). This color-key mapping will never change across the whole experiment. The mapping is also indicated by the colored squares shown below the circle.
+The keys are associated with three colors:
+
+{COLOR_KEY_LINE}
+
+This color-key mapping will never change across the whole experiment. The mapping is also indicated by the colored squares shown below the circle.
 
 __________
 

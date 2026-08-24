@@ -1716,6 +1716,9 @@ def _instruction_color_fmt(language: str = "en") -> dict[str, str]:
         "C_MIDDLE": c_middle,
         "C_RING": c_ring,
         "COLOR_KEY_LINE": f"  {c_index} = {key_n}     {c_middle} = {key_j}     {c_ring} = {key_k}",
+        "COLOR_KEY_LINE_INLINE": (
+            f"{c_index} = {key_n}, {c_middle} = {key_j}, {c_ring} = {key_k}"
+        ),
         "COLOR_FINGER_LINE": finger_line,
     }
 
@@ -1754,31 +1757,52 @@ def _load_pm_practice_instruction(session: int, participant_id: str) -> str:
     )
 
 
-def _load_session_instruction(session: int, participant_id: str) -> str:
+def _load_session_instruction(
+    session: int, participant_id: str, *, language: str = "en"
+) -> str:
     """Load the main session instruction (shown at start, or after the practice block)."""
     if session == 1:
-        return _load_session1_instruction(SESSION1_INSTRUCTION_LANGUAGE)
+        return _load_session1_instruction(language)
     if session == 2:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 2"))
-    if session == 3:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 3"))
-    if session == 4:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 4"))
-    if session == 5:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 5"))
-    if session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 6 onward"))
-    cue = _secondary_cue_label(session, participant_id)
-    if session == FIRST_PM_SESSION:
-        base = f"instruction ses after baseline {cue}"
+        base = "instruction ses 2"
+    elif session == 3:
+        base = "instruction ses 3"
+    elif session == 4:
+        base = "instruction ses 4"
+    elif session == 5:
+        base = "instruction ses 5"
+    elif session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
+        base = "instruction ses 6 onward"
     elif session == FIRST_SECOND_PM_PHASE_SESSION:
-        base = f"instruction ses new cue {cue}"
+        return _load_new_cue_session_instruction(session, participant_id, language)
     else:
-        base = f"instruction ses continue {cue}"
+        cue = _secondary_cue_label(session, participant_id)
+        if session == FIRST_PM_SESSION:
+            base = f"instruction ses after baseline {cue}"
+        else:
+            base = f"instruction ses continue {cue}"
     return _load_instruction(
         _resolve_instruction_filename(base),
-        **_instruction_color_fmt(),
+        **_instruction_color_fmt(language),
     )
+
+
+def _load_new_cue_session_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
+    """Load session-new-cue instruction text for en / zh / da."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _secondary_cue_label(session, participant_id)
+    base = f"instruction ses new cue {cue}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(language),
+    )
+
+
+def _uses_new_cue_language_switch(session: int) -> bool:
+    return session == FIRST_SECOND_PM_PHASE_SESSION
 
 
 def _load_session_start_instruction(session: int, participant_id: str) -> str:
