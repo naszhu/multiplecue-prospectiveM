@@ -1966,10 +1966,11 @@ _dialog_default_color_key_mapping = _color_key_mapping_dialog_label(
     _assigned_color_key_mapping(_dialog_default_participant)
 )
 _dialog_default_color_map_layout = _assigned_color_map_layout(_dialog_default_participant)
-_dialog_default_device_name = (
-    _srb_detected_device_name
+_dialog_default_device_name = _srb_detected_device_name or "KB"
+_dialog_default_response_device = (
+    DEFAULT_RESPONSE_DEVICE
     if _srb_detected_device_name is not None
-    else ("KB" if DEBUG_CONFIG.get("simulate_response_box") else "SRB1")
+    else RESPONSE_DEVICE_KEYBOARD
 )
 
 _dialog_default_session = _suggested_next_session(
@@ -2071,14 +2072,14 @@ session_dlg.addField(
 )
 session_dlg.addField(
     "Response device",
-    initial=DEFAULT_RESPONSE_DEVICE,
+    initial=_dialog_default_response_device,
     choices=[RESPONSE_DEVICE_KEYBOARD, RESPONSE_DEVICE_CEDRUS, RESPONSE_DEVICE_SELF_MADE],
 )
 session_dlg.addField(
     "Device name",
     initial=_dialog_default_device_name,
     choices=DEVICE_NAME_CHOICES,
-    tip="Default is auto-detected from the box when possible. Override only if incorrect.",
+    tip="Auto-detected from the box when connected; defaults to KB when no box is found.",
 )
 session_dlg.addField(
     "Color map layout",
