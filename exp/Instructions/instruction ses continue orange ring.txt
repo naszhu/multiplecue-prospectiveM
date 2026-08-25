@@ -2,11 +2,11 @@ SESSION
 
 Continue with the same task as in your recent sessions.
 
-On some trials, one circle will show an ORANGE RING on its border. When you see it, press C with your left middle finger instead of the color key.
+On some trials, one circle will show an ORANGE RING on its border. When you see it, press C with your left middle finger instead of a right-hand color key.
 
 Otherwise, choose the circle with the highest reward digit:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen.
 

@@ -1,7 +1,7 @@
 """
 PsychoPy version of the multiple-cue prospective memory experiment.
 
-Full session structure: 23 sessions (5 practice + 6 baseline + 6 focal PM + 6 nonfocal PM).
+Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
 Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
 Supports keyboard or self-made serial response box.
 """
@@ -25,6 +25,8 @@ except ImportError:
     serial = None
     list_ports = None
 
+import ishihara_screening as ishihara
+
 RESPONSE_DEVICE_KEYBOARD = "keyboard"
 RESPONSE_DEVICE_CEDRUS = "response_box_cedrus"
 RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
@@ -36,31 +38,44 @@ RESPONSE_DEVICE_SELF_MADE = "self-made-response-box"
 EXP_DIR = Path(__file__).resolve().parent
 
 DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6"]
-DEVICE_NAME_AUTO_CHOICE = "as assigned"
-DEVICE_NAME_DIALOG_CHOICES = [DEVICE_NAME_AUTO_CHOICE] + DEVICE_NAME_CHOICES
+COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
     "enabled": False,
-    "trial_duration": 0.001,
-    "auto_advance_instructions": False,
+    "trial_duration": 0.001,  # Fixation / stimulus / response / feedback / ITI when auto_advance_trials.
+    "auto_advance_trials": False,  # Auto-answer trials; same schedule as normal, faster timing only.
+    "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
+    "skip_survey": False,  # Skip the 5 end-of-session survey questions.
     "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "12"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
-# Physical unit ID: KB=keyboard, RB=Cedrus response box, SRB1–SRB6=self-made boxes.
-DEFAULT_DEVICE_NAME = "KB"
-DEFAULT_COLOR_MAP_LAYOUT = "njk"
 ############################# TO MODIFY ABOVE
 
-if DEFAULT_DEVICE_NAME not in DEVICE_NAME_CHOICES:
-    raise ValueError(
-        f"DEFAULT_DEVICE_NAME must be one of {DEVICE_NAME_CHOICES!r}; got {DEFAULT_DEVICE_NAME!r}."
-    )
+
+def _debug_enabled() -> bool:
+    return bool(DEBUG_CONFIG.get("enabled"))
 
 
-CODE_VERSION = "v1.2-2026-08-19"
+def _debug_flag(name: str, default: bool = False) -> bool:
+    return _debug_enabled() and bool(DEBUG_CONFIG.get(name, default))
+
+
+def _debug_wait_s() -> float:
+    """Shortest configured wait; 0 is allowed (one frame flip still happens)."""
+    try:
+        return max(0.0, float(DEBUG_CONFIG.get("trial_duration", 0.001)))
+    except (TypeError, ValueError):
+        return 0.001
+
+
+def _debug_fast_wait() -> None:
+    core.wait(_debug_wait_s())
+
+
+CODE_VERSION = "v2-2026-08-19"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -68,22 +83,19 @@ PARTICIPANT_COLOR_KEY_MAPPING_PATH = EXP_DIR / "participant_color_key_mapping.cs
 
 ALL_COLOR_KEY_MAPPINGS = sorted({"".join(p) for p in permutations("rbg")})
 _BOOTSTRAP_COLOR_KEY_MAPPING = ALL_COLOR_KEY_MAPPINGS[0]
-COLOR_KEY_MAPPING_AUTO_CHOICE = "as assigned"
 COLOR_KEY_MAPPING_DIALOG_CHOICES: list[str] = []
 COLOR_KEY_MAPPING_CHOICE_TO_VALUE: dict[str, str] = {}
-COLOR_MAP_LAYOUT_AUTO_CHOICE = "as assigned"
-COLOR_MAP_LAYOUT_DIALOG_CHOICES = [COLOR_MAP_LAYOUT_AUTO_CHOICE, "njk"]
 
 # Set after session dialog.
 COLOR_KEY_MAPPING = _BOOTSTRAP_COLOR_KEY_MAPPING
 COLOR_KEY_MAPPING_ASSIGNED = _BOOTSTRAP_COLOR_KEY_MAPPING
 COLOR_KEY_MAPPING_OVERRIDDEN = False
-COLOR_MAP_LAYOUT = DEFAULT_COLOR_MAP_LAYOUT
-COLOR_MAP_LAYOUT_ASSIGNED = DEFAULT_COLOR_MAP_LAYOUT
+COLOR_MAP_LAYOUT = "NA"
+COLOR_MAP_LAYOUT_ASSIGNED = "NA"
 COLOR_MAP_LAYOUT_OVERRIDDEN = False
 RESPONSE_DEVICE = DEFAULT_RESPONSE_DEVICE
-DEVICE_NAME = DEFAULT_DEVICE_NAME
-DEVICE_NAME_ASSIGNED = DEFAULT_DEVICE_NAME
+DEVICE_NAME = "NA"
+DEVICE_NAME_ASSIGNED = "NA"
 DEVICE_NAME_OVERRIDDEN = False
 SRB_FIRMWARE_VERSION: str | None = None
 SRB_DETECTION_WARNING: str | None = None
@@ -95,8 +107,15 @@ GENDER = "NA"
 PARTICIPATION_DAY = 1
 FIRST_SESSION_OF_DAY = True
 SPECIAL_SESSION_NOTE = ""
+SKIP_COLOR_VISION_TEST = False
+ISHIHARA_RESULT: dict | None = None
 
 INSTRUCTION_DIR = EXP_DIR / "Instructions"
+ISHIHARA_DIR = ishihara.ISHIHARA_DIR
+ISHIHARA_PLATES_JSON = ishihara.ISHIHARA_PLATES_JSON
+ISHIHARA_FAIL_ERRORS = ishihara.ISHIHARA_FAIL_ERRORS
+ISHIHARA_PLATE_SIZE_DEG = ishihara.ISHIHARA_PLATE_SIZE_DEG
+ISHIHARA_SOURCE_CITATION = ishihara.ISHIHARA_SOURCE_CITATION
 INSTRUCTION_FONT_CJK = EXP_DIR / "fonts" / "NotoSansCJKsc-Regular.otf"
 INSTRUCTION_FONT_CJK_NAME = "Noto Sans CJK SC"
 INSTRUCTION_LANGUAGE_SUFFIX = {"en": "", "zh": " zh", "da": " da"}
@@ -121,8 +140,8 @@ STIMULUS_OPACITY = 1.0
 
 # Session / phase design (see design.md)
 N_PRACTICE_SESSIONS = 5
-N_BASELINE_SESSIONS = 6
-N_PM_SESSIONS_PER_KIND = 6
+N_BASELINE_SESSIONS = 7
+N_PM_SESSIONS_PER_KIND = 7
 N_CUE_CONDITIONS = 6
 N_BLOCKS = 9
 TOTAL_TRIALS_PER_SESSION = 396
@@ -150,7 +169,7 @@ OTHER_WARMUP_TRIALS = 0
 BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
 PM_PRACTICE_BLOCK_NUMBER = -1
-# First PM session = 5 practice + 6 baseline + 1; second PM phase starts 6 sessions later.
+# Session 13 = first PM session; session 20 = first session of second PM phase (5+7=12, +1=13, +7=20).
 FIRST_PM_SESSION = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 1
 FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
@@ -185,28 +204,37 @@ def _validate_color_key_mapping(mapping: str) -> str:
     return mapping
 
 
-def _load_participant_color_key_mapping_table() -> dict[str, str]:
+def _load_participant_assignment_tables() -> tuple[dict[str, str], dict[str, str]]:
     """Read committed assignment table (read-only; never written by this program)."""
     path = PARTICIPANT_COLOR_KEY_MAPPING_PATH
     if not path.is_file():
         raise SystemExit(f"Missing color-key mapping table: {path}")
-    table: dict[str, str] = {}
+    mapping_table: dict[str, str] = {}
+    layout_table: dict[str, str] = {}
     with open(path, newline="", encoding="utf-8") as fp:
         reader = csv.DictReader(fp)
-        if (
-            reader.fieldnames is None
-            or "participant_id" not in reader.fieldnames
-            or "color_key_mapping" not in reader.fieldnames
-        ):
+        if reader.fieldnames is None or "participant_id" not in reader.fieldnames:
             raise SystemExit(f"Invalid mapping table columns in {path}")
+        if "color_key_mapping" not in reader.fieldnames:
+            raise SystemExit(f"Invalid mapping table columns in {path}")
+        has_layout_col = "color_map_layout" in reader.fieldnames
         for row in reader:
             pid = str(row["participant_id"]).strip()
             mapping = _validate_color_key_mapping(row["color_key_mapping"])
-            table[pid] = mapping
-    return table
+            mapping_table[pid] = mapping
+            if has_layout_col:
+                layout = str(row["color_map_layout"]).strip().lower()
+                if layout not in COLOR_MAP_LAYOUT_CHOICES:
+                    raise SystemExit(
+                        f"Invalid color_map_layout for participant {pid!r} in {path}: {layout!r}"
+                    )
+                layout_table[pid] = layout
+    return mapping_table, layout_table
 
 
-PARTICIPANT_COLOR_KEY_MAPPING = _load_participant_color_key_mapping_table()
+PARTICIPANT_COLOR_KEY_MAPPING, PARTICIPANT_COLOR_MAP_LAYOUT = (
+    _load_participant_assignment_tables()
+)
 
 
 def _color_key_mapping_dialog_label(mapping: str) -> str:
@@ -221,14 +249,12 @@ def _color_key_mapping_dialog_label(mapping: str) -> str:
 def _build_color_key_mapping_dialog_choices() -> tuple[list[str], dict[str, str]]:
     labeled = [_color_key_mapping_dialog_label(mapping) for mapping in ALL_COLOR_KEY_MAPPINGS]
     choice_to_value = dict(zip(labeled, ALL_COLOR_KEY_MAPPINGS))
-    return [COLOR_KEY_MAPPING_AUTO_CHOICE] + labeled, choice_to_value
+    return labeled, choice_to_value
 
 
-def _parse_color_key_mapping_choice(choice: str) -> str | None:
-    """Return mapping code, or None when the dialog left 'as assigned'."""
+def _parse_color_key_mapping_choice(choice: str) -> str:
+    """Return mapping code from a dialog label or raw code."""
     choice = str(choice).strip()
-    if choice.lower() == COLOR_KEY_MAPPING_AUTO_CHOICE.lower():
-        return None
     if choice in COLOR_KEY_MAPPING_CHOICE_TO_VALUE:
         return COLOR_KEY_MAPPING_CHOICE_TO_VALUE[choice]
     return _validate_color_key_mapping(choice)
@@ -248,39 +274,35 @@ def _resolve_color_key_mapping_from_dialog(
     """Return (assigned_mapping, used_mapping, overridden)."""
     assigned = _assigned_color_key_mapping(participant)
     parsed = _parse_color_key_mapping_choice(dialog_choice)
-    if parsed is None:
-        return assigned, assigned, False
     return assigned, parsed, parsed != assigned
+
+
+def _assigned_color_map_layout(participant: str) -> str:
+    if participant in PARTICIPANT_COLOR_MAP_LAYOUT:
+        return PARTICIPANT_COLOR_MAP_LAYOUT[participant]
+    return COLOR_MAP_LAYOUT_CHOICES[0]
 
 
 def _resolve_device_name_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
     """Return (assigned_name, used_name, overridden)."""
-    assigned = (
-        _srb_detected_device_name
-        if _srb_detected_device_name is not None
-        else DEFAULT_DEVICE_NAME
-    )
     choice = str(dialog_choice).strip()
-    if choice.lower() == DEVICE_NAME_AUTO_CHOICE.lower():
-        return assigned, assigned, False
     if choice not in DEVICE_NAME_CHOICES:
         raise SystemExit(
-            f"Device name must be '{DEVICE_NAME_AUTO_CHOICE}' or one of {DEVICE_NAME_CHOICES!r}; "
-            f"got {choice!r}."
+            f"Device name must be one of {DEVICE_NAME_CHOICES!r}; got {choice!r}."
         )
-    return assigned, choice, choice != assigned
+    assigned = _srb_detected_device_name or choice
+    return assigned, choice, _srb_detected_device_name is not None and choice != assigned
 
 
-def _resolve_color_map_layout_from_dialog(dialog_choice: str) -> tuple[str, str, bool]:
+def _resolve_color_map_layout_from_dialog(
+    participant: str, dialog_choice: str
+) -> tuple[str, str, bool]:
     """Return (assigned_layout, used_layout, overridden)."""
-    assigned = DEFAULT_COLOR_MAP_LAYOUT
+    assigned = _assigned_color_map_layout(participant)
     choice = str(dialog_choice).strip().lower()
-    if choice == COLOR_MAP_LAYOUT_AUTO_CHOICE.lower():
-        return assigned, assigned, False
-    if choice not in COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]:
+    if choice not in COLOR_MAP_LAYOUT_CHOICES:
         raise SystemExit(
-            f"Color map layout must be '{COLOR_MAP_LAYOUT_AUTO_CHOICE}' or one of "
-            f"{COLOR_MAP_LAYOUT_DIALOG_CHOICES[1:]!r}; got {choice!r}."
+            f"Color map layout must be one of {COLOR_MAP_LAYOUT_CHOICES!r}; got {choice!r}."
         )
     return assigned, choice, choice != assigned
 
@@ -587,6 +609,12 @@ MONITOR_WIDTH_CM = 52
 MONITOR_DISTANCE_CM = 60
 MONITOR_CHOICES = [f"room1_a{i}" for i in range(1, 11)]
 MONITOR_NAME = DEFAULT_MONITOR_NAME
+EXPECTED_REFRESH_HZ = 100
+REFRESH_RATE_TOLERANCE_HZ = 10
+MEASURED_REFRESH_RATE = 0.0
+ACTUAL_WIN_SIZE_PIX = WIN_SIZE_PIX
+DISPLAY_CHECK_SPEC_OK = True
+DISPLAY_CHECK_MISMATCH_CONTINUED = False
 USE_UNITS = "deg"
 CIRCLE_EDGES = 200
 
@@ -914,6 +942,8 @@ def _build_trial_row(
         "SRBFirmwareVersion": srb_firmware_version,
         "SyncOK": sync_ok,
         "Note": trial_note,
+        "TrialType": "task",
+        "SurveyQuestion": "",
     }
 
 
@@ -987,6 +1017,10 @@ DAT_COLUMN_DESCRIPTIONS = {
         "1 for keyboard trials (no Arduino sync needed)."
     ),
     "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
+    "TrialType": "'task' for ordinary trial rows; 'survey' for end-of-session survey rows.",
+    "SurveyQuestion": (
+        "End-of-session survey question number (1-5) for TrialType='survey' rows; empty otherwise."
+    ),
 }
 
 
@@ -1026,6 +1060,14 @@ def _build_metadata(
             "burnin_block_included": include_burnin_block,
             "burnin_trials_per_block": BURNIN_TRIALS_PER_BLOCK if include_burnin_block else 0,
             "burnin_block_number": BURNIN_BLOCK_NUMBER if include_burnin_block else None,
+            "burnin_source_session": BURNIN_SOURCE_SESSION,
+            "burnin_source_phase": BURNIN_SOURCE_PHASE,
+            "burnin_pm_trials": (
+                _burnin_pm_trial_count(BURNIN_SOURCE_PHASE, BURNIN_SOURCE_SESSION)
+                if include_burnin_block and BURNIN_SOURCE_PHASE
+                else 0
+            ),
+            "burnin_skipped_by_experimenter": BURNIN_SKIPPED if include_burnin_block else None,
             "burnin_eligibility_note": (
                 "Burn-in block included when session >= 6, first session of day, and participation day > 1."
             ),
@@ -1077,6 +1119,10 @@ def _build_metadata(
             "code_version": CODE_VERSION,
             "exp_start_time": exp_start_time_str,
             "debug_config_enabled": debug_on,
+            "debug_auto_advance_trials": _debug_flag("auto_advance_trials"),
+            "debug_auto_advance_instructions": _debug_flag("auto_advance_instructions"),
+            "debug_skip_survey": _debug_flag("skip_survey"),
+            "debug_trial_duration_s": _debug_wait_s() if debug_on else None,
             "color_key_mapping": COLOR_KEY_MAPPING,
             "color_key_mapping_assigned": COLOR_KEY_MAPPING_ASSIGNED,
             "color_key_mapping_overridden": COLOR_KEY_MAPPING_OVERRIDDEN,
@@ -1100,6 +1146,21 @@ def _build_metadata(
             "handedness": HANDEDNESS,
             "color_vision": COLOR_VISION,
             "eye_vision": EYE_VISION,
+            "ishihara_skipped": (
+                None if ISHIHARA_RESULT is None else bool(ISHIHARA_RESULT.get("skipped"))
+            ),
+            "ishihara_passed": (
+                None if ISHIHARA_RESULT is None else ISHIHARA_RESULT.get("passed")
+            ),
+            "ishihara_n_errors": (
+                None if ISHIHARA_RESULT is None else ISHIHARA_RESULT.get("n_errors")
+            ),
+            "ishihara_fail_threshold": ISHIHARA_FAIL_ERRORS,
+            "ishihara_prior_standalone": (
+                None
+                if ISHIHARA_RESULT is None
+                else ISHIHARA_RESULT.get("prior_standalone")
+            ),
             "participation_day": PARTICIPATION_DAY,
             "first_session_of_day": "Y" if FIRST_SESSION_OF_DAY else "N",
             "practice": "Y" if SESSION <= N_PRACTICE_SESSIONS else "N",
@@ -1115,7 +1176,7 @@ def _build_metadata(
             "device_name": DEVICE_NAME,
             "device_name_assigned": DEVICE_NAME_ASSIGNED,
             "device_name_overridden": DEVICE_NAME_OVERRIDDEN,
-            "default_device_name_in_code": DEFAULT_DEVICE_NAME,
+            "srb_auto_detected_device_name": _srb_detected_device_name,
             "srb_firmware_version": SRB_FIRMWARE_VERSION,
             "srb_detection_warning": SRB_DETECTION_WARNING,
             "response_keys": [key.upper() for key in COLOR_KEYS.values()] + [PM_KEY.upper()],
@@ -1123,6 +1184,18 @@ def _build_metadata(
             "self_made_response_box_pin_to_key": dict(SELF_MADE_PIN_TO_KEY),
             "pm_key": PM_KEY,
             "response_deadline": RESPONSE_DEADLINE,
+            "startup_display_check_description": (
+                "After Window open, compare actual win.size to WIN_SIZE_PIX and "
+                "win.getActualFrameRate() to expected Hz; on mismatch, C continues and ESC exits."
+            ),
+            "fixed_refresh_rate_expected_hz": EXPECTED_REFRESH_HZ,
+            "measured_refresh_rate_hz": MEASURED_REFRESH_RATE,
+            "expected_resolution_px": list(WIN_SIZE_PIX),
+            "actual_window_size_px": list(ACTUAL_WIN_SIZE_PIX),
+            "display_check_passed_spec": "Y" if DISPLAY_CHECK_SPEC_OK else "N",
+            "continued_after_mismatch_warning": (
+                "Y" if DISPLAY_CHECK_MISMATCH_CONTINUED else "N"
+            ),
             "monitor_name": MONITOR_NAME,
             "monitor_set_size_pixels": list(WIN_SIZE_PIX),
             "monitor_width_cm": MONITOR_WIDTH_CM,
@@ -1212,7 +1285,7 @@ def session_phase_for(session: int, participant_id: str) -> str:
 
 
 def session_needs_pm_practice_block(session: int) -> bool:
-    """One PM practice block at the first session of each PM phase (baseline→PM A, PM A→PM B)."""
+    """One PM practice block at session 13 (baseline→PM A) and session 20 (PM A→PM B)."""
     return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
 
 
@@ -1376,6 +1449,14 @@ def _apply_variant_to_stub(stub: dict, variant: dict, *, single_center: bool = F
     stub["single_center"] = single_center
 
 
+def _burnin_source_for_session(session_number: int, participant_id: str) -> tuple[str, int]:
+    """Phase and session number for burn-in trials (last session's task on phase change)."""
+    if session_number in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+        source_session = session_number - 1
+        return session_phase_for(source_session, participant_id), source_session
+    return session_phase_for(session_number, participant_id), session_number
+
+
 def _should_include_burnin_block(
     session: int, first_session_of_day: bool, participation_day: int
 ) -> bool:
@@ -1472,23 +1553,52 @@ def _make_block(
     return block_trials
 
 
+def _burnin_pm_trial_count(session_phase: str, session_number: int) -> int:
+    """PM trials in the burn-in block, scaled to the main-block PM rate of that session."""
+    if session_phase not in ("focal_pm", "nonfocal_pm"):
+        return 0
+    gen = get_session_generation_config(session_number)
+    trials_per_block = get_session_trial_config(session_number)["n_per_block"]
+    pm_rate = gen["n_cue_conditions"] / trials_per_block
+    return max(1, round(BURNIN_TRIALS_PER_BLOCK * pm_rate))
+
+
 def _make_burnin_block(
     rng: random.Random,
     session_phase: str,
     session_number: int,
 ) -> list:
-    """20-trial re-acclimation block: ongoing trials only, balanced across cue conditions."""
+    """20-trial re-acclimation block reproducing the source session's task, PM trials included."""
     gen = get_session_generation_config(session_number)
     cue_conditions = gen["cue_conditions"]
     single_center = gen["single_center"]
     cue_pools = _cue_pools_for_session(session_number)
     n_cue = len(cue_conditions)
-    base_reps = BURNIN_TRIALS_PER_BLOCK // n_cue
-    remainder = BURNIN_TRIALS_PER_BLOCK % n_cue
+    pm_kind = _pm_trial_kind_for_phase(session_phase)
+    pm_positions = [CENTER_POSITION_NAME] if single_center else POSITION_NAMES
+    n_pm = _burnin_pm_trial_count(session_phase, session_number)
+    # At most one PM trial per cue condition, as in the main blocks.
+    pm_cue_indices = set(rng.sample(range(n_cue), n_pm)) if n_pm else set()
+
+    n_ongoing_total = BURNIN_TRIALS_PER_BLOCK - n_pm
+    base_reps = n_ongoing_total // n_cue
+    remainder = n_ongoing_total % n_cue
 
     block_trials = []
     for cue_index, _cue_condition in enumerate(cue_conditions):
         pool = cue_pools[cue_index]
+        if cue_index in pm_cue_indices:
+            pm_stub = {
+                "session_phase": session_phase,
+                "is_pm_trial": True,
+                "pm_trial_kind": pm_kind,
+                "pm_position": rng.choice(pm_positions),
+                "warm_up": 1,
+                "burn_in_block": 1,
+                "pm_practice_block": 0,
+            }
+            _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
+            block_trials.append(pm_stub)
         n_this = base_reps + (1 if cue_index < remainder else 0)
         for _ in range(n_this):
             stub = {
@@ -1530,7 +1640,10 @@ def build_session_trials(
     trial_in_session = 0
 
     if include_burnin_block:
-        burnin_block = _make_burnin_block(rng, session_phase, session_number)
+        burnin_phase, burnin_session = _burnin_source_for_session(
+            session_number, participant_id
+        )
+        burnin_block = _make_burnin_block(rng, burnin_phase, burnin_session)
         for trial_in_block, trial in enumerate(burnin_block, start=1):
             trial = dict(trial)
             trial.update(
@@ -1590,49 +1703,6 @@ def build_session_trials(
     return trials
 
 
-def build_debug_pm_test_trials(participant_id: str, session_number: int) -> list:
-    """
-    Debug PM smoke session: 12 trials, all pre-assigned at build time.
-
-    Trials 1-6 (block 1): focal PM, one per cue condition — order shuffled within block.
-    Trials 7-12 (block 2): nonfocal PM, one per cue condition — order shuffled within block.
-
-    Each trial draws a random reward-position/color variant from its cue pool and a random
-    pm_position, so every cue condition and both PM kinds can be tested quickly.
-    """
-    rng = random.Random(f"debug-pm-{participant_id}-{session_number}")
-    trials = []
-    trial_in_session = 0
-
-    for block_number, pm_kind in ((1, "focal"), (2, "nonfocal")):
-        session_phase = "focal_pm" if pm_kind == "focal" else "nonfocal_pm"
-        block_trials = []
-        for cue_index, _cue_condition in enumerate(CUE_CONDITIONS):
-            pool = _pool_for_cue_condition(_cue_condition, center=False)
-            stub = {
-                "session_phase": session_phase,
-                "is_pm_trial": True,
-                "pm_trial_kind": pm_kind,
-                "pm_position": rng.choice(POSITION_NAMES),
-                "warm_up": 0,
-                "burn_in_block": 0,
-            }
-            _apply_variant_to_stub(stub, rng.choice(pool), single_center=False)
-            block_trials.append(stub)
-        rng.shuffle(block_trials)
-        for trial_in_block, trial in enumerate(block_trials, start=1):
-            trial_in_session += 1
-            trials.append(
-                {
-                    **trial,
-                    "block": block_number,
-                    "trial_in_block": trial_in_block,
-                    "trial_in_session": trial_in_session,
-                }
-            )
-    return trials
-
-
 def _instruction_device_suffix() -> str:
     if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
         return " self-made-response-box"
@@ -1684,6 +1754,9 @@ def _instruction_color_fmt(language: str = "en") -> dict[str, str]:
         "C_MIDDLE": c_middle,
         "C_RING": c_ring,
         "COLOR_KEY_LINE": f"  {c_index} = {key_n}     {c_middle} = {key_j}     {c_ring} = {key_k}",
+        "COLOR_KEY_LINE_INLINE": (
+            f"{c_index} = {key_n}, {c_middle} = {key_j}, {c_ring} = {key_k}"
+        ),
         "COLOR_FINGER_LINE": finger_line,
     }
 
@@ -1709,44 +1782,146 @@ def _load_session1_instruction(language: str = "en") -> str:
     )
 
 
-def _load_pm_practice_instruction(session: int, participant_id: str) -> str:
+def _load_pm_practice_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
     """Instruction at session start when a practice block precedes the main session."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
     cue = _secondary_cue_label(session, participant_id)
     if session == FIRST_PM_SESSION:
-        base = f"instruction practice after baseline {cue}"
+        stem = f"instruction practice after baseline {cue}"
     else:
-        base = f"instruction practice new cue {cue}"
+        stem = f"instruction practice new cue {cue}"
+    base = f"{stem}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
     return _load_instruction(
         _resolve_instruction_filename(base),
-        **_instruction_color_fmt(),
+        **_instruction_color_fmt(language),
     )
 
 
-def _load_session_instruction(session: int, participant_id: str) -> str:
+def _burnin_intro_cue_for_phase(session_phase: str) -> str | None:
+    """Return orange ring / dashed stem for PM burn-in intros, or None for baseline."""
+    if session_phase == "focal_pm":
+        return "orange ring"
+    if session_phase == "nonfocal_pm":
+        return "dashed"
+    return None
+
+
+def _load_burnin_intro_instruction(
+    burnin_source_phase: str, language: str = "en"
+) -> str:
+    """Burn-in intro matched to yesterday's task (baseline vs focal vs nonfocal PM)."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _burnin_intro_cue_for_phase(burnin_source_phase)
+    if cue is None:
+        stem = "instruction burnin intro"
+    else:
+        stem = f"instruction burnin intro {cue}"
+    base = f"{stem}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(_resolve_instruction_filename(base))
+
+
+def _show_burnin_intro_instruction(burnin_source_phase: str):
+    """Burn-in intro with en/zh/da switcher; experimenter may skip the block."""
+    return _show_instruction_with_language_switch(
+        lambda language: _load_burnin_intro_instruction(
+            burnin_source_phase, language
+        ),
+        allow_experimenter_skip=True,
+    )
+
+
+def _show_pm_practice_instruction(session: int, participant_id: str) -> bool:
+    """PM practice intro with en/zh/da switcher on phase-transition sessions."""
+    if session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+        return _show_instruction_with_language_switch(
+            lambda language: _load_pm_practice_instruction(
+                session, participant_id, language
+            ),
+        )
+    return _show_instruction_text(
+        _load_pm_practice_instruction(session, participant_id)
+    )
+
+
+def _show_session_start_instruction(session: int, participant_id: str) -> bool:
+    """First instruction at session open (PM practice intro or normal session intro)."""
+    if session_needs_pm_practice_block(session):
+        return _show_pm_practice_instruction(session, participant_id)
+    if _uses_phase_transition_language_switch(session):
+        return _show_session_instruction(session, participant_id)
+    return _show_instruction_text(_load_session_instruction(session, participant_id))
+
+
+def _load_session_instruction(
+    session: int, participant_id: str, *, language: str = "en"
+) -> str:
     """Load the main session instruction (shown at start, or after the practice block)."""
     if session == 1:
-        return _load_session1_instruction(SESSION1_INSTRUCTION_LANGUAGE)
+        return _load_session1_instruction(language)
     if session == 2:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 2"))
-    if session == 3:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 3"))
-    if session == 4:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 4"))
-    if session == 5:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 5"))
-    if session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
-        return _load_instruction(_resolve_instruction_filename("instruction ses 6 onward"))
-    cue = _secondary_cue_label(session, participant_id)
-    if session == FIRST_PM_SESSION:
-        base = f"instruction ses after baseline {cue}"
+        base = "instruction ses 2"
+    elif session == 3:
+        base = "instruction ses 3"
+    elif session == 4:
+        base = "instruction ses 4"
+    elif session == 5:
+        base = "instruction ses 5"
+    elif session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
+        base = "instruction ses 6 onward"
+    elif session == FIRST_PM_SESSION:
+        return _load_after_baseline_session_instruction(
+            session, participant_id, language
+        )
     elif session == FIRST_SECOND_PM_PHASE_SESSION:
-        base = f"instruction ses new cue {cue}"
+        return _load_new_cue_session_instruction(session, participant_id, language)
     else:
+        cue = _secondary_cue_label(session, participant_id)
         base = f"instruction ses continue {cue}"
     return _load_instruction(
         _resolve_instruction_filename(base),
-        **_instruction_color_fmt(),
+        **_instruction_color_fmt(language),
     )
+
+
+def _load_after_baseline_session_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
+    """Load baseline→PM transition instruction text for en / zh / da."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _secondary_cue_label(session, participant_id)
+    base = f"instruction ses after baseline {cue}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(language),
+    )
+
+
+def _load_new_cue_session_instruction(
+    session: int, participant_id: str, language: str = "en"
+) -> str:
+    """Load session-new-cue instruction text for en / zh / da."""
+    if language not in INSTRUCTION_LANGUAGE_SUFFIX:
+        raise SystemExit(f"Unsupported instruction language: {language!r}")
+    cue = _secondary_cue_label(session, participant_id)
+    base = f"instruction ses new cue {cue}{INSTRUCTION_LANGUAGE_SUFFIX[language]}"
+    return _load_instruction(
+        _resolve_instruction_filename(base),
+        **_instruction_color_fmt(language),
+    )
+
+
+def _uses_phase_transition_language_switch(session: int) -> bool:
+    """Sessions 13 and 20: main phase-change instructions with en/zh/da switcher."""
+    return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
+
+
+def _uses_new_cue_language_switch(session: int) -> bool:
+    return _uses_phase_transition_language_switch(session)
 
 
 def _load_session_start_instruction(session: int, participant_id: str) -> str:
@@ -1783,16 +1958,21 @@ if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get
     elif _srb_detection_warning:
         print(f"SRB detection warning: {_srb_detection_warning}")
 
-# Dialog default for Device name: use auto-detected SRB name if available, else fall back to config
-_dialog_default_device_name = (
-    _srb_detected_device_name
-    if _srb_detected_device_name is not None
-    else DEVICE_NAME_AUTO_CHOICE
-)
-
+# Dialog defaults: show assigned/read values directly (no "as assigned" placeholder).
 _dialog_default_participant = (
     DEFAULT_PARTICIPANT if DEFAULT_PARTICIPANT in PARTICIPANT_CHOICES else "1"
 )
+_dialog_default_color_key_mapping = _color_key_mapping_dialog_label(
+    _assigned_color_key_mapping(_dialog_default_participant)
+)
+_dialog_default_color_map_layout = _assigned_color_map_layout(_dialog_default_participant)
+_dialog_default_device_name = _srb_detected_device_name or "KB"
+_dialog_default_response_device = (
+    DEFAULT_RESPONSE_DEVICE
+    if _srb_detected_device_name is not None
+    else RESPONSE_DEVICE_KEYBOARD
+)
+
 _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
@@ -1875,31 +2055,37 @@ session_dlg.addField(
     tip="Auto-derived from data; change if incorrect.",
 )
 session_dlg.addField(
+    "Skip color vision test?",
+    initial="no",
+    choices=["no", "yes"],
+    tip="Session 1 only. Default no runs Ishihara screening; yes skips it.",
+)
+session_dlg.addField(
     "Color key mapping",
-    initial=COLOR_KEY_MAPPING_AUTO_CHOICE,
+    initial=_dialog_default_color_key_mapping,
     choices=COLOR_KEY_MAPPING_DIALOG_CHOICES,
     tip=(
-        "as assigned = mapping from participant_color_key_mapping.csv for this participant "
+        "Default from participant_color_key_mapping.csv for this participant "
         "(random for test or if id is missing from the table). "
-        "Or pick one of 6 mappings: each sets N/J/K -> red/blue/green."
+        "Override only if incorrect."
     ),
 )
 session_dlg.addField(
     "Response device",
-    initial=DEFAULT_RESPONSE_DEVICE,
+    initial=_dialog_default_response_device,
     choices=[RESPONSE_DEVICE_KEYBOARD, RESPONSE_DEVICE_CEDRUS, RESPONSE_DEVICE_SELF_MADE],
 )
 session_dlg.addField(
     "Device name",
     initial=_dialog_default_device_name,
-    choices=DEVICE_NAME_DIALOG_CHOICES,
-    tip="Auto-detected from box if firmware supports 'I' command. Override only if incorrect.",
+    choices=DEVICE_NAME_CHOICES,
+    tip="Auto-detected from the box when connected; defaults to KB when no box is found.",
 )
 session_dlg.addField(
     "Color map layout",
-    initial=COLOR_MAP_LAYOUT_AUTO_CHOICE,
-    choices=COLOR_MAP_LAYOUT_DIALOG_CHOICES,
-    tip="Only NJK layout is implemented; leave as assigned unless instructed.",
+    initial=_dialog_default_color_map_layout,
+    choices=COLOR_MAP_LAYOUT_CHOICES,
+    tip="Default from assignment table when available; only NJK is implemented.",
 )
 session_dlg.addField(
     "Monitor name",
@@ -1940,19 +2126,20 @@ if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
 # Section 3: experimenter only
+SKIP_COLOR_VISION_TEST = str(session_dlg.data[9]).strip().lower() == "yes"
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
-    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[9])
+    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[10])
 )
 apply_color_key_mapping(COLOR_KEY_MAPPING)
-RESPONSE_DEVICE = session_dlg.data[10]
+RESPONSE_DEVICE = session_dlg.data[11]
 DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name_from_dialog(
-    session_dlg.data[11]
+    session_dlg.data[12]
 )
 COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
-    _resolve_color_map_layout_from_dialog(session_dlg.data[12])
+    _resolve_color_map_layout_from_dialog(PARTICIPANT, session_dlg.data[13])
 )
-MONITOR_NAME = str(session_dlg.data[13]).strip() or DEFAULT_MONITOR_NAME
-SPECIAL_SESSION_NOTE = str(session_dlg.data[14]).strip()
+MONITOR_NAME = str(session_dlg.data[14]).strip() or DEFAULT_MONITOR_NAME
+SPECIAL_SESSION_NOTE = str(session_dlg.data[15]).strip()
 
 # Collect log entries for any defaults that were manually changed
 _SESSION_START_LOG_EXTRAS: list[str] = []
@@ -2009,22 +2196,19 @@ DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = _should_include_burnin_block(
     SESSION, FIRST_SESSION_OF_DAY, PARTICIPATION_DAY
 )
-INCLUDE_PM_PRACTICE = (
-    session_needs_pm_practice_block(SESSION) and not DEBUG_CONFIG["enabled"]
+BURNIN_SOURCE_PHASE, BURNIN_SOURCE_SESSION = (
+    _burnin_source_for_session(SESSION, PARTICIPANT) if INCLUDE_BURNIN else (None, None)
 )
+BURNIN_SKIPPED = False
+INCLUDE_PM_PRACTICE = session_needs_pm_practice_block(SESSION)
 
-if DEBUG_CONFIG["enabled"]:
-    # Short PM test session: trials 1-6 focal PM, 7-12 nonfocal PM (one per cue condition).
-    SESSION_PHASE = "focal_pm"
-    trials = build_debug_pm_test_trials(PARTICIPANT, SESSION)
-else:
-    trials = build_session_trials(
-        SESSION_PHASE,
-        SESSION,
-        PARTICIPANT,
-        include_burnin_block=INCLUDE_BURNIN,
-        include_pm_practice_block=INCLUDE_PM_PRACTICE,
-    )
+trials = build_session_trials(
+    SESSION_PHASE,
+    SESSION,
+    PARTICIPANT,
+    include_burnin_block=INCLUDE_BURNIN,
+    include_pm_practice_block=INCLUDE_PM_PRACTICE,
+)
 N_TRIALS = len(trials)
 SESSION_TRIAL_CONFIG = get_session_trial_config(SESSION)
 SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else SESSION_TRIAL_CONFIG["n_blocks"]
@@ -2040,6 +2224,15 @@ simulate_response_box = (
     DEBUG_CONFIG.get("simulate_response_box", False)
     and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
 )
+if _debug_enabled():
+    print(
+        "DEBUG: full session trial schedule; "
+        f"n_trials={len(trials)} n_blocks={max(t['block'] for t in trials) if trials else 0} "
+        f"auto_advance_trials={_debug_flag('auto_advance_trials')} "
+        f"auto_advance_instructions={_debug_flag('auto_advance_instructions')} "
+        f"skip_survey={_debug_flag('skip_survey')} "
+        f"trial_duration={_debug_wait_s()}s"
+    )
 if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
     if simulate_response_box:
         print(
@@ -2055,6 +2248,47 @@ if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
 # WINDOW AND STIMULI
 # =============================================================================
 
+
+def _run_startup_display_check(win) -> tuple[float, tuple[int, int], bool, bool]:
+    """Require ~EXPECTED_REFRESH_HZ Hz and WIN_SIZE_PIX; if not, show warning and wait for C or ESC."""
+    actual = tuple(int(round(x)) for x in win.size)
+    try:
+        measured = float(win.getActualFrameRate())
+    except Exception:
+        measured = 0.0
+    res_ok = actual == tuple(WIN_SIZE_PIX)
+    hz_ok = measured > 0 and abs(measured - EXPECTED_REFRESH_HZ) <= REFRESH_RATE_TOLERANCE_HZ
+    spec_ok = res_ok and hz_ok
+    mismatch_continued = False
+    if not spec_ok:
+        msg = (
+            f"Display check failed.\n\n"
+            f"Expected: {WIN_SIZE_PIX[0]} x {WIN_SIZE_PIX[1]} px, "
+            f"~{EXPECTED_REFRESH_HZ} Hz (±{REFRESH_RATE_TOLERANCE_HZ} Hz).\n\n"
+            f"Actual window size (px): {actual[0]} x {actual[1]}\n"
+            f"Measured refresh rate: {measured:.2f} Hz\n\n"
+            "Press C to continue anyway.\nPress ESCAPE to exit."
+        )
+        warn = visual.TextStim(
+            win,
+            text=msg,
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            height=0.5,
+            units=USE_UNITS,
+            wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        )
+        warn.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=["c", "escape"])
+        if not keys or keys[0] == "escape":
+            win.close()
+            core.quit()
+            raise SystemExit("Display check: user chose exit.")
+        mismatch_continued = True
+    return measured, actual, spec_ok, mismatch_continued
+
+
 mon = monitors.Monitor(MONITOR_NAME)
 mon.setSizePix(WIN_SIZE_PIX)
 mon.setWidth(MONITOR_WIDTH_CM)
@@ -2069,6 +2303,13 @@ win = visual.Window(
     monitor=mon,
 )
 win.setMouseVisible(False)
+
+(
+    MEASURED_REFRESH_RATE,
+    ACTUAL_WIN_SIZE_PIX,
+    DISPLAY_CHECK_SPEC_OK,
+    DISPLAY_CHECK_MISMATCH_CONTINUED,
+) = _run_startup_display_check(win)
 
 fixation = visual.TextStim(
     win,
@@ -2276,24 +2517,76 @@ def _confirm_exit_or_continue():
             return bool(keys[0] == QUIT_KEY)
 
 
-def _wait_space_or_exit(redraw_stim=None):
-    """Wait for SPACE (return True) or ESC (return False).
+_EXPERIMENTER_SKIP_KEY = "p"
 
-    If *redraw_stim* is given it is redrawn and flipped every ~0.5 s so the
-    display stays active during long pauses (prevents screen blank on Linux).
-    """
+
+def _experimenter_skip_confirm(
+    prompt: str = "Skip this block?\n\nPress SPACE to continue.",
+) -> bool:
+    """Experimenter-only two-step skip confirm (second P confirms)."""
+    confirm = visual.TextStim(
+        win,
+        text=prompt,
+        color=COLORS["white"],
+        colorSpace=COLOR_SPACE,
+        height=INSTRUCTION_LETTER_SIZE_DEG,
+        wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+        units=USE_UNITS,
+    )
+    while True:
+        confirm.draw()
+        win.flip()
+        keys = event.waitKeys(
+            keyList=[_EXPERIMENTER_SKIP_KEY, START_KEY, QUIT_KEY],
+            maxWait=0.5,
+        )
+        if not keys:
+            continue
+        key = keys[0]
+        if key == _EXPERIMENTER_SKIP_KEY:
+            return True
+        if key in (START_KEY, QUIT_KEY):
+            return False
+
+
+def _poll_experimenter_burnin_skip() -> bool:
+    """Return True when experimenter confirmed skipping the burn-in block."""
+    keys = event.getKeys(keyList=[_EXPERIMENTER_SKIP_KEY])
+    if not keys:
+        return False
+    return _experimenter_skip_confirm(
+        "Skip burn-in block?\n\nPress SPACE to continue the block."
+    )
+
+
+def _wait_space_or_exit(redraw_stim=None, *, allow_experimenter_skip: bool = False):
+    """Wait for SPACE (return True), ESC (return False), or optional experimenter skip."""
+    if _debug_flag("auto_advance_instructions"):
+        if redraw_stim is not None:
+            redraw_stim.draw()
+            win.flip()
+        _debug_fast_wait()
+        return True
     while True:
         if redraw_stim is not None:
             redraw_stim.draw()
             win.flip()
-        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
+        key_list = [START_KEY, QUIT_KEY]
+        if allow_experimenter_skip:
+            key_list.append(_EXPERIMENTER_SKIP_KEY)
+        keys = event.waitKeys(keyList=key_list, maxWait=0.5)
         if not keys:
             continue
         if keys[0] == START_KEY:
             return True
+        if allow_experimenter_skip and keys[0] == _EXPERIMENTER_SKIP_KEY:
+            if _experimenter_skip_confirm(
+                "Skip burn-in block?\n\nPress SPACE to continue the block."
+            ):
+                return "skip"
+            continue
         if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
             return False
-        # After returning from exit confirm, redraw stim and continue waiting
         if redraw_stim is not None:
             redraw_stim.draw()
             win.flip()
@@ -2316,6 +2609,77 @@ def _set_instruction_display(
         instructions.font = INSTRUCTION_FONT_CJK_NAME
     else:
         instructions.font = DEFAULT_INSTRUCTION_FONT
+
+
+def _instruction_with_language_header(language: str, body: str) -> str:
+    return f"{INSTRUCTION_LANGUAGE_SWITCHER[language]}\n__________\n\n{body}"
+
+
+def _show_instruction_with_language_switch(
+    load_body,
+    *,
+    initial_language: str | None = None,
+    allow_experimenter_skip: bool = False,
+):
+    """Show instruction text with en/zh/da switcher line separated above the body."""
+    global SESSION1_INSTRUCTION_LANGUAGE
+    language = initial_language or SESSION1_INSTRUCTION_LANGUAGE
+    key_list = [START_KEY, QUIT_KEY, "c", "d", "e"]
+    if allow_experimenter_skip:
+        key_list.append(_EXPERIMENTER_SKIP_KEY)
+    while True:
+        body = load_body(language)
+        _set_instruction_display(
+            _instruction_with_language_header(language, body),
+            language=language,
+            use_session1_height=True,
+            use_cjk_font=True,
+        )
+        instructions.draw()
+        win.flip()
+        if _debug_flag("auto_advance_instructions"):
+            SESSION1_INSTRUCTION_LANGUAGE = language
+            _debug_fast_wait()
+            return True
+        while True:
+            keys = event.waitKeys(keyList=key_list, maxWait=0.5)
+            if not keys:
+                instructions.draw()
+                win.flip()
+                continue
+            key = keys[0]
+            if key == "c" and language != "zh":
+                language = "zh"
+                break
+            if key == "d" and language != "da":
+                language = "da"
+                break
+            if key == "e" and language != "en":
+                language = "en"
+                break
+            if allow_experimenter_skip and key == _EXPERIMENTER_SKIP_KEY:
+                if _experimenter_skip_confirm(
+                    "Skip burn-in block?\n\nPress SPACE to continue the block."
+                ):
+                    return "skip"
+                continue
+            if key == START_KEY:
+                SESSION1_INSTRUCTION_LANGUAGE = language
+                return True
+            if key == QUIT_KEY and _confirm_exit_or_continue():
+                return False
+            instructions.draw()
+            win.flip()
+
+
+def _show_session_instruction(session: int, participant_id: str) -> bool:
+    if _uses_phase_transition_language_switch(session):
+        return _show_instruction_with_language_switch(
+            lambda language: _load_session_instruction(
+                session, participant_id, language=language
+            ),
+        )
+    return _show_instruction_text(_load_session_instruction(session, participant_id))
 
 
 def _show_instruction_text(text: str, *, use_cjk_font: bool = False, language: str = "en"):
@@ -2349,6 +2713,10 @@ def _show_language_selection_screen() -> str | None:
     while True:
         instructions.draw()
         win.flip()
+        if _debug_flag("auto_advance_instructions"):
+            SESSION1_INSTRUCTION_LANGUAGE = "en"
+            _debug_fast_wait()
+            return "en"
         keys = event.waitKeys(keyList=["e", "c", "d", QUIT_KEY], maxWait=0.5)
         if not keys:
             continue
@@ -2371,42 +2739,7 @@ def _show_language_selection_screen() -> str | None:
 
 def _show_session1_first_instruction() -> bool:
     """Session 1 opening instruction with English / 中文 / dansk switching."""
-    global SESSION1_INSTRUCTION_LANGUAGE
-    language = SESSION1_INSTRUCTION_LANGUAGE  # respect pre-selection from language screen
-    while True:
-        body = _load_session1_instruction(language)
-        _set_instruction_display(
-            INSTRUCTION_LANGUAGE_SWITCHER[language] + body,
-            language=language,
-            use_session1_height=True,
-            use_cjk_font=True,
-        )
-        instructions.draw()
-        win.flip()
-        while True:
-            keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY, "c", "d", "e"], maxWait=0.5)
-            if not keys:
-                # Keepalive redraw so the display stays active during long waits
-                instructions.draw()
-                win.flip()
-                continue
-            key = keys[0]
-            if key == "c" and language != "zh":
-                language = "zh"
-                break
-            if key == "d" and language != "da":
-                language = "da"
-                break
-            if key == "e" and language != "en":
-                language = "en"
-                break
-            if key == START_KEY:
-                SESSION1_INSTRUCTION_LANGUAGE = language
-                return True
-            if key == QUIT_KEY and _confirm_exit_or_continue():
-                return False
-            instructions.draw()
-            win.flip()
+    return _show_instruction_with_language_switch(_load_session1_instruction)
 
 
 def _trials_in_block(block_number):
@@ -2450,16 +2783,456 @@ def _set_feedback4_text(trial):
     )
 
 
+def _debug_auto_trial_key(trial: dict) -> str:
+    """Legal key so debug auto-advance does not time out: PM key on PM trials, else best-reward color."""
+    if trial.get("is_pm_trial"):
+        return PM_KEY
+    rewards = trial.get("reward_values") or []
+    colors = trial.get("trial_colors") or []
+    if rewards and colors and len(rewards) == len(colors):
+        best_i = max(range(len(rewards)), key=lambda i: rewards[i])
+        key = COLOR_KEYS.get(colors[best_i])
+        if key:
+            return key
+    if COLOR_KEYS:
+        return next(iter(COLOR_KEYS.values()))
+    return KEY_SLOT_KEYS[0]
+
+
+def _load_ishihara_plate_defs() -> list[dict]:
+    return ishihara.load_plate_defs()
+
+
+def _ishihara_result_path() -> Path:
+    return PARTICIPANT_DATA_DIR / f"{DATA_FILE_STEM}_ishihara.json"
+
+
+def _write_ishihara_result(result: dict) -> Path:
+    return ishihara.write_result(_ishihara_result_path(), result)
+
+
+def _run_ishihara_screening() -> dict:
+    """Session-1 wrapper around shared screening."""
+    return ishihara.run_ishihara_screening(
+        win,
+        participant=PARTICIPANT,
+        session=SESSION,
+        source_mode="session1_experiment",
+    )
+
+
+def _maybe_run_session1_ishihara_screening() -> None:
+    """Session-1 Ishihara gate: skip / pass continue; fail stops experiment."""
+    global COLOR_VISION, ISHIHARA_RESULT
+
+    if SESSION != 1:
+        return
+
+    log_path = ishihara.session_log_path(PARTICIPANT_DATA_DIR, PARTICIPANT)
+    prior = ishihara.load_standalone_result(PARTICIPANT_DATA_DIR, PARTICIPANT)
+    if prior is not None:
+        _SESSION_START_LOG_EXTRAS.append(
+            "  Prior standalone Ishihara found: "
+            f"passed={prior.get('passed')!r}, failed={prior.get('failed')!r}, "
+            f"n_errors={prior.get('n_errors')!r}, "
+            f"ColorVision={prior.get('color_vision')!r}, "
+            f"timestamp={prior.get('timestamp')!r}"
+        )
+
+    if SKIP_COLOR_VISION_TEST:
+        ISHIHARA_RESULT = {
+            "skipped": True,
+            "aborted": False,
+            "passed": None,
+            "failed": None,
+            "n_errors": None,
+            "fail_threshold": ISHIHARA_FAIL_ERRORS,
+            "plates": [],
+            "source": ISHIHARA_SOURCE_CITATION,
+            "source_mode": "session1_experiment",
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "participant": PARTICIPANT,
+            "session": SESSION,
+            "color_vision": COLOR_VISION,
+            "dialog_color_vision": COLOR_VISION,
+            "prior_standalone": prior,
+        }
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening skipped (experimenter option). Wrote {out_path}")
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Ishihara screening skipped; ColorVision={COLOR_VISION!r}"
+        )
+        return
+
+    ISHIHARA_RESULT = _run_ishihara_screening()
+    ISHIHARA_RESULT["prior_standalone"] = prior
+
+    if ISHIHARA_RESULT.get("skipped"):
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        ISHIHARA_RESULT["dialog_color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening skipped. Wrote {out_path}")
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Ishihara screening skipped; ColorVision={COLOR_VISION!r}"
+        )
+        return
+
+    if ISHIHARA_RESULT.get("aborted"):
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening aborted. Wrote {out_path}")
+        win.close()
+        core.quit()
+
+    if ISHIHARA_RESULT.get("failed"):
+        COLOR_VISION = "not normal"
+        ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+        out_path = _write_ishihara_result(ISHIHARA_RESULT)
+        ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+        print(f"Ishihara screening FAILED. Wrote {out_path}")
+        fail_text = visual.TextStim(
+            win,
+            text=(
+                "Color vision screening: NOT NORMAL\n\n"
+                f"Errors on scored plates: {ISHIHARA_RESULT.get('n_errors')} "
+                f"(fail if ≥ {ISHIHARA_FAIL_ERRORS})\n\n"
+                "This session will stop.\n"
+                "Please call the experimenter.\n\n"
+                "Press SPACE or ESC to exit."
+            ),
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            height=INSTRUCTION_LETTER_SIZE_DEG,
+            wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
+            units=USE_UNITS,
+        )
+        fail_text.draw()
+        win.flip()
+        event.waitKeys(keyList=[START_KEY, QUIT_KEY])
+        win.close()
+        core.quit()
+
+    COLOR_VISION = "normal"
+    ISHIHARA_RESULT["color_vision"] = COLOR_VISION
+    out_path = _write_ishihara_result(ISHIHARA_RESULT)
+    ishihara.append_session_log(log_path, ishihara.format_session_log_lines(ISHIHARA_RESULT))
+    print(
+        f"Ishihara screening passed "
+        f"({ISHIHARA_RESULT.get('n_errors')} errors; threshold {ISHIHARA_FAIL_ERRORS}). "
+        f"Wrote {out_path}"
+    )
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Ishihara screening passed; n_errors={ISHIHARA_RESULT.get('n_errors')}; "
+        f"ColorVision={COLOR_VISION!r}"
+    )
+
+
+# =============================================================================
+# END-OF-SESSION SURVEY
+# =============================================================================
+
+SURVEY_BLOCK_NUMBER = -2
+
+_SURVEY_TEXT_ENTRY_PUNCTUATION = {
+    "space": " ",
+    "period": ".",
+    "comma": ",",
+    "minus": "-",
+    "apostrophe": "'",
+    "slash": "/",
+    "semicolon": ";",
+    "equal": "=",
+}
+
+
+def _survey_prompt_text(question: str, options: list[str]) -> str:
+    lines = [question, ""]
+    for idx, option in enumerate(options, start=1):
+        lines.append(f"{idx}.  {option}")
+    lines.append("")
+    lines.append(f"Press a number key (1-{len(options)}) to respond.")
+    return "\n".join(lines)
+
+
+def _collect_choice_response(question: str, options: list[str]) -> str | None:
+    """Numbered multiple-choice question; returns the chosen digit as str, or None if quit."""
+    key_list = [str(i) for i in range(1, len(options) + 1)]
+    while True:
+        _set_instruction_display(
+            _survey_prompt_text(question, options), use_cjk_font=True
+        )
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=key_list + [QUIT_KEY], maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                return None
+            continue
+        return key
+
+
+def _collect_free_text_response(question: str, *, max_len: int = 300) -> str | None:
+    """Free-text entry (letters, digits, space, basic punctuation); ENTER submits, ESC quits."""
+    letter_keys = list("abcdefghijklmnopqrstuvwxyz")
+    digit_keys = [str(d) for d in range(10)]
+    key_list = (
+        letter_keys
+        + digit_keys
+        + list(_SURVEY_TEXT_ENTRY_PUNCTUATION.keys())
+        + ["backspace", "return", QUIT_KEY]
+    )
+    typed = ""
+    while True:
+        prompt = (
+            f"{question}\n\n"
+            "(Type your answer: letters, numbers, space, and basic punctuation only.\n"
+            "BACKSPACE to correct, ENTER to submit.)\n\n"
+            "__________\n\n"
+            f"{typed}_"
+        )
+        _set_instruction_display(prompt, use_cjk_font=True)
+        instructions.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=key_list, maxWait=0.5)
+        if not keys:
+            continue
+        key = keys[0]
+        if key == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                return None
+            continue
+        if key == "return":
+            return typed.strip()
+        if key == "backspace":
+            typed = typed[:-1]
+            continue
+        if len(typed) >= max_len:
+            continue
+        if key in _SURVEY_TEXT_ENTRY_PUNCTUATION:
+            typed += _SURVEY_TEXT_ENTRY_PUNCTUATION[key]
+        elif key.isalnum():
+            typed += key
+
+
+def _build_survey_row(
+    *,
+    trial_index: int,
+    survey_question: int,
+    response: str,
+    note: str,
+    cum_reward: float,
+    session_elapsed_sec: float,
+    trial_wall_clock_str: str,
+) -> dict:
+    """CSV row for one end-of-session survey question; reuses the trial-row schema."""
+    return {
+        "ExperimentName": EXPERIMENT_NAME,
+        "ExperimentNumber": EXPERIMENT_NUMBER,
+        "CodeVersion": CODE_VERSION,
+        "ColorMapLayout": COLOR_MAP_LAYOUT,
+        "ColorKeyMapping": COLOR_KEY_MAPPING,
+        "ResponseDevice": RESPONSE_DEVICE,
+        "DeviceName": DEVICE_NAME,
+        "Subject": PARTICIPANT,
+        "Handedness": HANDEDNESS,
+        "ColorVision": COLOR_VISION,
+        "EyeVision": EYE_VISION,
+        "Session": SESSION,
+        "Block": SURVEY_BLOCK_NUMBER,
+        "Trial": trial_index + 1,
+        "WarmUpTrial": 0,
+        "BurnInBlock": 0,
+        "ParticipationDay": PARTICIPATION_DAY,
+        "FirstSessionOfDay": 1 if FIRST_SESSION_OF_DAY else 0,
+        "PMPracticeBlock": 0,
+        "SessionPhase": SESSION_PHASE,
+        "CueCondition": "",
+        "NumCues": 0,
+        "TrialStartJitterTime": 0,
+        "CueSOA": 0,
+        "Cues": "",
+        "CueValues": "",
+        "CueRanks": "",
+        "Response": response,
+        "RespLoc": 0,
+        "PointTargetResponse": "",
+        "RT": 0,
+        "RTComputerClock": 0,
+        "RTDifference": 0,
+        "LateResponse": False,
+        "ACC": 0,
+        "INTR": 0,
+        "CueResponseValue": 0,
+        "CueResponseExpValue": 0,
+        "CueRankResponse": 0,
+        "ExpectedReward": 0,
+        "Reward": 0,
+        "MaxReward": 0,
+        "CumReward": cum_reward,
+        "PMTrial": 0,
+        "PMKind": "",
+        "PMPosition": "",
+        "PMPositionId": 0,
+        "PMKey": PM_KEY,
+        "PMResponse": 0,
+        "PMACC": 0,
+        "PMIntrusion": 0,
+        "PMReward": 0,
+        "FocalPMStyle": "",
+        "CueTime": 0,
+        "PointTargetTime": 0,
+        "ColorTargetTime": 0,
+        "EndTrialTime": 0,
+        "TrialWallClockTime": trial_wall_clock_str,
+        "SessionElapsedSec": round(session_elapsed_sec, 3),
+        "SRBFirmwareVersion": SRB_FIRMWARE_VERSION or "",
+        "SyncOK": 1,
+        "Note": note,
+        "TrialType": "survey",
+        "SurveyQuestion": survey_question,
+    }
+
+
+def _append_survey_row(row: dict) -> None:
+    with open(_out_trials_path, "a", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=csv_columns)
+        writer.writerow(row)
+
+
+def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[int, bool]:
+    """Ask the 5 end-of-session survey questions; append one CSV row per question.
+
+    Returns (updated_trial_index, completed); completed is False if the
+    participant quit partway through the survey.
+    """
+
+    def _record(question_number: int, response: str, note: str) -> int:
+        now = datetime.now()
+        wall_clock = now.strftime("%Y-%m-%d %H:%M:%S") + f".{now.microsecond // 1000:03d}"
+        elapsed = time.perf_counter() - session_start_perf
+        row = _build_survey_row(
+            trial_index=trial_index,
+            survey_question=question_number,
+            response=response,
+            note=note,
+            cum_reward=cum_reward,
+            session_elapsed_sec=elapsed,
+            trial_wall_clock_str=wall_clock,
+        )
+        _append_survey_row(row)
+        return trial_index + 1
+
+    # Q1: room lighting change.
+    q1 = _collect_choice_response(
+        "During this session, did the lighting in the experiment room change "
+        "(for example, the light being turned on or off)?",
+        ["Yes", "No", "I didn't notice / don't remember"],
+    )
+    if q1 is None:
+        return trial_index, False
+    q1_note = ""
+    if q1 == "1":
+        q1_note = _collect_free_text_response(
+            "How did the light change, and how often did this happen?"
+        )
+        if q1_note is None:
+            return trial_index, False
+    trial_index = _record(1, q1, q1_note)
+
+    # Q2: interruption by someone in the room.
+    q2 = _collect_choice_response(
+        "Did anyone in the room interrupt or distract you during this session?",
+        ["Yes", "No"],
+    )
+    if q2 is None:
+        return trial_index, False
+    q2_note = ""
+    if q2 == "1":
+        q2_note = _collect_free_text_response("Please describe what happened.")
+        if q2_note is None:
+            return trial_index, False
+    trial_index = _record(2, q2, q2_note)
+
+    # Q3: tiredness or other outside influence (no penalty, framed for honesty).
+    q3 = _collect_choice_response(
+        "Were you tired, or affected by anything else, during this session?\n"
+        "(There is no penalty for an honest answer -- it helps us interpret the data.)",
+        ["Yes", "No"],
+    )
+    if q3 is None:
+        return trial_index, False
+    q3_note = ""
+    if q3 == "1":
+        q3_note = _collect_free_text_response("Please describe what happened.")
+        if q3_note is None:
+            return trial_index, False
+    trial_index = _record(3, q3, q3_note)
+
+    # Q4: strategy. Session 1 asks directly (no choice, response stays empty);
+    # later sessions ask whether the strategy changed since last time.
+    if SESSION == 1:
+        q4_note = _collect_free_text_response(
+            "What strategy, if any, are you using to do this task?"
+        )
+        if q4_note is None:
+            return trial_index, False
+        trial_index = _record(4, "", q4_note)
+    else:
+        q4 = _collect_choice_response(
+            "Has your strategy for this task changed since your last session\n"
+            "(for example, becoming more cautious, starting by looking at a\n"
+            "particular color first, silently reading the color code to yourself, etc.)?",
+            ["Yes, my strategy has changed.", "No, I have not changed my strategy."],
+        )
+        if q4 is None:
+            return trial_index, False
+        q4_note = ""
+        if q4 == "1":
+            q4_note = _collect_free_text_response("What did you change, and why?")
+            if q4_note is None:
+                return trial_index, False
+        trial_index = _record(4, q4, q4_note)
+
+    # Q5: automaticity of the color-key response (5-point Likert, no follow-up).
+    q5 = _collect_choice_response(
+        "Do you feel that pressing the color key has become automatic, so that\n"
+        "you no longer need to remind yourself (for example, by silently reading\n"
+        "the color in your mind) before responding?",
+        [
+            "Completely automatic -- I don't need to remind myself at all.",
+            "Mostly automatic -- I rarely need to remind myself.",
+            "Somewhat automatic -- I sometimes need to remind myself.",
+            "Not very automatic -- I often need to remind myself.",
+            "Not automatic at all -- I need to remind myself almost every time.",
+        ],
+    )
+    if q5 is None:
+        return trial_index, False
+    trial_index = _record(5, q5, "")
+
+    return trial_index, True
+
+
 # =============================================================================
 # EXPERIMENT START
 # =============================================================================
 
+_maybe_run_session1_ishihara_screening()
+
 if INCLUDE_BURNIN:
-    if not _show_instruction_text(
-        _load_instruction(_resolve_instruction_filename("instruction burnin intro"))
-    ):
+    _burnin_intro_action = _show_burnin_intro_instruction(BURNIN_SOURCE_PHASE)
+    if _burnin_intro_action is False:
         win.close()
         core.quit()
+    elif _burnin_intro_action == "skip":
+        BURNIN_SKIPPED = True
+        _SESSION_START_LOG_EXTRAS.append("  Burn-in block skipped (experimenter).")
 elif SESSION == 1:
     if _show_language_selection_screen() is None:
         win.close()
@@ -2467,7 +3240,7 @@ elif SESSION == 1:
     if not _show_session1_first_instruction():
         win.close()
         core.quit()
-elif not _show_instruction_text(_load_session_start_instruction(SESSION, PARTICIPANT)):
+elif not _show_session_start_instruction(SESSION, PARTICIPANT):
     win.close()
     core.quit()
 
@@ -2489,23 +3262,29 @@ print(f"Metadata will be saved to: {_out_metadata_path}")
 
 for trial in trials:
     current_block = trial["block"]
+    if trial.get("burn_in_block"):
+        if BURNIN_SKIPPED:
+            prev_block = current_block
+            continue
+        if _poll_experimenter_burnin_skip():
+            BURNIN_SKIPPED = True
+            _append_session_log(_log_path, [
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  "
+                "Burn-in block skipped (experimenter)."
+            ])
+            prev_block = current_block
+            continue
     if prev_block is not None and current_block != prev_block:
         if prev_block == PM_PRACTICE_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_text(
-                _load_session_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_session_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == PM_PRACTICE_BLOCK_NUMBER:
-            if not _show_instruction_text(
-                _load_pm_practice_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_pm_practice_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
-            if not _show_instruction_text(
-                _load_session_instruction(SESSION, PARTICIPANT)
-            ):
+            if not _show_session_instruction(SESSION, PARTICIPANT):
                 completed_normally = False
                 break
         else:
@@ -2524,11 +3303,13 @@ for trial in trials:
                 break
 
     trial_colors = trial["trial_colors"]
-    trial_start_jitter_time_ms = FIXATION_TIME * 1000
+    debug_auto_trial = _debug_flag("auto_advance_trials")
+    trial_wait_s = _debug_wait_s() if debug_auto_trial else FIXATION_TIME
+    trial_start_jitter_time_ms = trial_wait_s * 1000
 
     fixation.draw()
     win.flip()
-    core.wait(FIXATION_TIME)
+    core.wait(trial_wait_s)
 
     event.clearEvents()
     trial_clock = core.Clock()
@@ -2624,14 +3405,18 @@ for trial in trials:
             if label is not None:
                 label.draw()
 
-    if serial_response_box is not None:
+    if serial_response_box is not None and not debug_auto_trial:
         serial_response_box.reset_input_buffer()
 
     trial_clock.reset()
     win.flip()
     cue_time = trial_clock.getTime()
     trial_sync_ok = 1  # 1 = confirmed; 0 = ack missing; keyboard always 1
-    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+    if (
+        not debug_auto_trial
+        and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
+        and serial_response_box is not None
+    ):
         serial_response_box.write(b"S")
         serial_response_box.flush()
         # Expect 'A' acknowledgement immediately (firmware sends it before starting timer)
@@ -2642,7 +3427,10 @@ for trial in trials:
             print(f"WARNING: SRB sync ack missing: {_sync_warn}")
             _append_session_log(_log_path, [f"  WARNING: SRB sync ack missing: {_sync_warn}"])
 
-    if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
+    if debug_auto_trial:
+        _debug_fast_wait()
+        keys = [(_debug_auto_trial_key(trial), trial_clock.getTime())]
+    elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
         self_made_response = _wait_for_self_made_response_box(
             serial_response_box, trial_clock, MAX_RESPONSE_TIME
         )
@@ -2684,7 +3472,8 @@ for trial in trials:
         rt_computer_clock_ms = rt
 
     too_fast = (
-        not timed_out
+        not debug_auto_trial
+        and not timed_out
         and rt_computer_clock_ms is not None
         and rt_computer_clock_ms < MIN_RT_MS
     )
@@ -2753,10 +3542,10 @@ for trial in trials:
     feedback4.draw()
     fixation.draw()
     win.flip()
-    core.wait(FEEDBACK_WAIT_TIME)
+    core.wait(_debug_wait_s() if debug_auto_trial else FEEDBACK_WAIT_TIME)
 
     win.flip()
-    core.wait(ITI_TIME)
+    core.wait(_debug_wait_s() if debug_auto_trial else ITI_TIME)
     end_trial_time = trial_clock.getTime()
 
     now = datetime.now()
@@ -2784,6 +3573,7 @@ for trial in trials:
         sync_ok=trial_sync_ok,
         srb_firmware_version=SRB_FIRMWARE_VERSION or "",
         trial_note=" | ".join(p for p in [
+            "debug_auto_response" if debug_auto_trial else "",
             "too_fast_rt" if too_fast else "",
             "srb_sync_failed" if trial_sync_ok == 0 else "",
             REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
@@ -2827,9 +3617,22 @@ for trial in trials:
 # =============================================================================
 
 if completed_normally:
+    if _debug_flag("skip_survey"):
+        _survey_completed = True
+    else:
+        trial_index, _survey_completed = _run_end_of_session_survey(
+            trial_index=trial_index, cum_reward=cum_reward
+        )
+    if not _survey_completed:
+        completed_normally = False
+
+if completed_normally:
     end_text.draw()
     win.flip()
-    event.waitKeys()
+    if _debug_flag("auto_advance_instructions"):
+        _debug_fast_wait()
+    else:
+        event.waitKeys()
 
 _end_status = "completed normally" if completed_normally else "interrupted"
 _append_session_log(_log_path, [
