@@ -1,20 +1,22 @@
-NEW SESSION — AFTER BASELINE
+You have completed the previous part of the experiment. A new part is beginning, and the task will be somewhat different.
 
-You have now finished the baseline sessions. From this session on, the task is different.
+SPECIAL TASK: In addition to choosing the circle with the highest reward digit, there is sometimes a second response you must make.
 
-In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
-
-On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit). When you see a dashed outline, press C with your left middle finger instead of the color key. Responding correctly earns 5 bonus points.
+On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit). When you see a DASHED WHITE OUTLINE, press C with your LEFT MIDDLE FINGER instead of the color key. Responding correctly earns 5 bonus points.
 
 __________
 
-ONGOING TASK (same circle choice as before):
+ONGOING TASK (same as before):
 
 Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the special task above: when you see a DASHED WHITE OUTLINE, press C with your LEFT MIDDLE FINGER instead of a color key.
 
 __________
 

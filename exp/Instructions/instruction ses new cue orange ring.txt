@@ -1,22 +1,24 @@
-NEW SESSION — DIFFERENT ADDITIONAL TASK
+You have completed the previous part of the experiment. A new part is beginning.
 
-In the sessions you completed earlier with the extra task, you responded when a circle had a DASHED WHITE OUTLINE.
+In the previous part, the special task was to respond when a circle had a DASHED WHITE OUTLINE. In this new part, the special task is different.
 
-This session uses a different additional task.
+SPECIAL TASK (different from the previous part): In addition to choosing the circle with the highest reward digit, you sometimes need to do another task.
 
-In addition to choosing the circle with the highest reward digit, there is sometimes a second response:
-
-On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see this orange ring, press C with your left middle finger instead of the color key. Responding correctly earns 5 bonus points.
+On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see an ORANGE RING, press C with your LEFT MIDDLE FINGER instead of a right-hand color key. Responding correctly earns 5 bonus points.
 
 __________
 
-ONGOING TASK (same circle choice as before):
+ONGOING TASK (same as before):
 
 Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the new special task above: when you see an ORANGE RING, press C with your LEFT MIDDLE FINGER instead of a right-hand color key.
 
 __________
 

@@ -2,7 +2,9 @@ PRACTICE 5
 
 The procedure is the same as in the experimental sessions that follow.
 
-Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward by pressing the key for its color (Red = N, Blue = J, Green = K).
+Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward by pressing the key for its color:
+
+{COLOR_KEY_LINE}
 
 The color-key mapping is not shown on the screen.
 

@@ -3,6 +3,6 @@ Choose the color circle with the highest reward value.
 Red = N     Blue = J     Green = K
 
 PM rule: if one circle has an ORANGE marker (dot/ring/patch), or a DASHED outline,
-press C with your left middle finger instead of the color key. Circle colors stay red/blue/green.
+press C with your left middle finger instead of a right-hand color key. Circle colors stay red/blue/green.
 
 Press SPACE to start.

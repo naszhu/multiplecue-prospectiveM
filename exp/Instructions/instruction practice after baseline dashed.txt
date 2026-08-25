@@ -1,18 +1,22 @@
 PRACTICE BLOCK
 
-You have now finished the baseline sessions. The sessions from here on are different: in addition to choosing the highest-reward circle, there is sometimes a second response you must make.
+You have completed the previous part of the experiment. A new part is beginning. In this part, there is a special task in addition to the main color-choice task.
 
 You will first practice this in a short block before the main part of today's session.
 
-On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border. When you see it, press C with your left middle finger instead of the color key.
+SPECIAL TASK: On some trials, one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit). When you see a DASHED WHITE OUTLINE, press C with your LEFT MIDDLE FINGER instead of the color key.
 
-Otherwise, choose the circle with the highest reward digit using:
+ONGOING TASK (same as before): Choose the circle with the highest reward digit using:
 
-  Red = N     Blue = J     Green = K
+{COLOR_KEY_LINE}
 
 During this practice block, the color-key mapping will NOT be shown on the screen. Use what you have learned.
 
-When this practice block ends, you will see the full instructions for today's session before the main blocks begin.
+When this practice block ends, you will see the full instructions before the main blocks begin.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the special task: when you see a DASHED WHITE OUTLINE, press C with your LEFT MIDDLE FINGER instead of a color key.
 
 __________
 

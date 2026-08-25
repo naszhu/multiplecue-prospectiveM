@@ -1,0 +1,16 @@
+{
+  "source": "Martin Krzywinski Ishihara's Tests for Colour Deficiency lowres v1.0.0",
+  "source_url": "https://mk.bcgsc.ca/ishihara-tests-for-colour-deficiency/",
+  "fail_errors": 3,
+  "plates": [
+    {"id": 1, "file": "ishihara-38-test-plates-1.png", "expected": "12", "scored": false},
+    {"id": 2, "file": "ishihara-38-test-plates-2.png", "expected": "8", "scored": true},
+    {"id": 3, "file": "ishihara-38-test-plates-3.png", "expected": "6", "scored": true},
+    {"id": 4, "file": "ishihara-38-test-plates-4.png", "expected": "29", "scored": true},
+    {"id": 5, "file": "ishihara-38-test-plates-5.png", "expected": "57", "scored": true},
+    {"id": 6, "file": "ishihara-38-test-plates-6.png", "expected": "5", "scored": true},
+    {"id": 7, "file": "ishihara-38-test-plates-7.png", "expected": "3", "scored": true},
+    {"id": 8, "file": "ishihara-38-test-plates-8.png", "expected": "15", "scored": true},
+    {"id": 9, "file": "ishihara-38-test-plates-9.png", "expected": "74", "scored": true}
+  ]
+}

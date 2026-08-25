@@ -2,7 +2,7 @@ RE-ACCLIMATION BLOCK
 
 Before the main session, you will complete a short block of practice trials to help you get back into the rhythm of the task after your break.
 
-The task is the same as in the main session: choose the circle with the highest reward value and press the key that matches its color on the response box.
+The task is the same as in your last session: choose the circle with the highest reward value and press the key that matches its color on the response box.
 
 The color-key mapping will be shown on the screen during this block (colored squares below the circles).
 
