@@ -75,7 +75,7 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v2-2026-08-19"
+CODE_VERSION = "v2.1-2026-08-27"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
