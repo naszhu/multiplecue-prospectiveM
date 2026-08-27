@@ -10,3 +10,4 @@ exp/data_from_lab/**/*.json
 
 analysis/fig/*.png
 analysis/fig/**/*.png
+analysis/fig/**/ErrorRate_byCondition*.csv
