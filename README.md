@@ -14,6 +14,20 @@ Prospective-memory extension of the multiple-cue reward selection task (CCRP). P
 
 Details: `exp/design.md`, `exp/trial_number_design.md`.
 
+## Version tags (pilot releases)
+
+GitHub’s **Tags** tab lists refs by version number (highest first), not by commit date or when the tag was added. Chronological order of the experiment code:
+
+| Tag | Commit | When run / notes |
+| --- | ------ | ---------------- |
+| [v1-pilot](https://github.com/naszhu/multiplecue-prospectiveM/releases/tag/v1-pilot) | `881c58a` | Jun 17 2026 — first pilot |
+| [v1.1-pilot](https://github.com/naszhu/multiplecue-prospectiveM/releases/tag/v1.1-pilot) | `788327e` | Jun 18 2026 — 23 sessions (6 baseline + 6 PM per phase) |
+| [v1.3-pilot](https://github.com/naszhu/multiplecue-prospectiveM/releases/tag/v1.3-pilot) | `5e629b7` | Jun 2026 line — 26 sessions (7+7), CCRP practice blocks; **no v1.2 tag** (see tag message) |
+| [v2.0-pilot](https://github.com/naszhu/multiplecue-prospectiveM/releases/tag/v2.0-pilot) | `e45fff8` | Aug 2026 — dialog, Ishihara, survey, burn-in, SRB auto-detect |
+| [v2.1-pilot](https://github.com/naszhu/multiplecue-prospectiveM/releases/tag/v2.1-pilot) | `6ea286c` | Aug 2026 — SRB reconnect/resilience + session log |
+
+Current development: `exp/testmain_demo.py` (`CODE_VERSION` in file).
+
 ## Run
 
 ```bash
