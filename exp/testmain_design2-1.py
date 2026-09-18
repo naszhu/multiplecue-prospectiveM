@@ -50,7 +50,7 @@ DEBUG_CONFIG = {
     "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
     "skip_survey": False,  # Skip the 5 end-of-session survey questions.
     "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
-    "full_screen": False,
+    "full_screen": True,
 }
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
@@ -2677,6 +2677,8 @@ def _run_startup_display_check(win) -> tuple[float, tuple[int, int], bool, bool]
             f"~{EXPECTED_REFRESH_HZ} Hz (±{REFRESH_RATE_TOLERANCE_HZ} Hz).\n\n"
             f"Actual window size (px): {actual[0]} x {actual[1]}\n"
             f"Measured refresh rate: {measured:.2f} Hz\n\n"
+            "Stimulus sizes are scaled to keep the same on-screen proportions "
+            f"as on a {WIN_SIZE_PIX[0]}x{WIN_SIZE_PIX[1]} display.\n\n"
             "Press C to continue anyway.\nPress ESCAPE to exit."
         )
         warn = visual.TextStim(
@@ -2699,6 +2701,32 @@ def _run_startup_display_check(win) -> tuple[float, tuple[int, int], bool, bool]
     return measured, actual, spec_ok, mismatch_continued
 
 
+def _match_deg_units_to_actual_window(win, mon) -> tuple[int, int]:
+    """Keep deg sizes occupying the same screen fraction as on WIN_SIZE_PIX.
+
+    Fullscreen on a higher-resolution display uses the native pixel size, but
+    PsychoPy still converts deg using the monitor's sizePix. If that stays at
+    1920x1080, objects are drawn with 1080p pixel sizes on a denser screen and
+    look tiny. Updating sizePix to the actual window restores 1080p proportions.
+    """
+    actual = tuple(int(round(x)) for x in win.size)
+    if actual == tuple(WIN_SIZE_PIX):
+        return actual
+    mon.setSizePix(actual)
+    win_mon = getattr(win, "monitor", None)
+    if win_mon is not None and win_mon is not mon:
+        win_mon.setSizePix(actual)
+    if hasattr(win, "scrWidthPIX"):
+        win.scrWidthPIX = actual[0]
+    for attr in ("_pixelsPerDegree", "_pixPerDeg"):
+        if hasattr(win, attr):
+            try:
+                setattr(win, attr, None)
+            except Exception:
+                pass
+    return actual
+
+
 mon = monitors.Monitor(MONITOR_NAME)
 mon.setSizePix(WIN_SIZE_PIX)
 mon.setWidth(MONITOR_WIDTH_CM)
@@ -2713,6 +2741,7 @@ win = visual.Window(
     monitor=mon,
 )
 win.setMouseVisible(False)
+_matched_win_size = _match_deg_units_to_actual_window(win, mon)
 
 (
     MEASURED_REFRESH_RATE,
@@ -2720,6 +2749,13 @@ win.setMouseVisible(False)
     DISPLAY_CHECK_SPEC_OK,
     DISPLAY_CHECK_MISMATCH_CONTINUED,
 ) = _run_startup_display_check(win)
+if _matched_win_size != tuple(WIN_SIZE_PIX):
+    _SESSION_START_LOG_EXTRAS.append(
+        "  Deg units remapped to actual window size "
+        f"{_matched_win_size[0]}x{_matched_win_size[1]} px "
+        f"(lab reference {WIN_SIZE_PIX[0]}x{WIN_SIZE_PIX[1]}) "
+        "so stimuli keep 1080p on-screen proportions."
+    )
 if not DISPLAY_CHECK_SPEC_OK:
     _SESSION_START_LOG_EXTRAS.append(
         "  Display check failed: "
