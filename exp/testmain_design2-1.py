@@ -50,15 +50,16 @@ DEBUG_CONFIG = {
     "auto_advance_instructions": False,  # Skip SPACE on instruction / language / block-break / end screens.
     "skip_survey": False,  # Skip the 5 end-of-session survey questions.
     "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
-    "full_screen": True,
+    "full_screen": False,
 }
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
-# Focal PM cue: "center_ring" (original orange ring) or "center_disk" (filled orange disk in the circle center).
+# Focal PM cue: "center_ring" (original orange outline) or "center_disk"
+# (orange middle band; outer rim stays the task color, white center stays for the reward).
 FOCAL_PM_STYLE = "center_disk"
 # Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x"
-# (filler inner circle on every disk; the PM target replaces that filler with a cross).
+# (small circle in the white center on every disk; the PM target replaces it with a triangle).
 NONFOCAL_PM_STYLE = "center_x"
 # Dialog participant "test" only: PM trials per cue per block. Real experiment uses 1
 # (6 PM / 44). 3 gives 18 PM + 26 ongoing, still balanced across 6 cue conditions.
@@ -882,13 +883,14 @@ FOCAL_PM_PATCH_OFFSET = 0.55 * CUE_OUTER_RADIUS_DEG
 FOCAL_PM_HALO_RADIUS = CUE_OUTER_RADIUS_DEG * 1.08
 FOCAL_PM_HALO_LINE_WIDTH = 7
 FOCAL_PM_MARKER_BG_RADIUS = CUE_INNER_RADIUS_DEG * 0.72
-FOCAL_PM_CENTER_DISK_RADIUS = CUE_INNER_RADIUS_DEG * 0.62
-# Inner filler O / PM cross sit in the white inner disk, below the reward digit.
-INNER_FILLER_RADIUS_DEG = CUE_INNER_RADIUS_DEG * 0.32
-INNER_FILLER_LINE_WIDTH = 4
-INNER_FILLER_CROSS_HALF_DEG = INNER_FILLER_RADIUS_DEG
-INNER_FILLER_Y_OFFSET_DEG = -0.40 * CUE_INNER_RADIUS_DEG
-INNER_FILLER_NUMBER_Y_OFFSET_DEG = 0.22 * CUE_INNER_RADIUS_DEG
+# Focal "center_disk": filled orange band between the outer task color and the white center.
+FOCAL_PM_ORANGE_BAND_RADIUS = (CUE_OUTER_RADIUS_DEG + CUE_INNER_RADIUS_DEG) / 2
+# Digit (top) and filler shape (bottom) share the white inner disk.
+INNER_FILLER_REWARD_TEXT_HEIGHT = 6.8 * STIM_FACTOR
+INNER_FILLER_NUMBER_Y_OFFSET_DEG = 0.40 * CUE_INNER_RADIUS_DEG
+INNER_FILLER_SHAPE_Y_OFFSET_DEG = -0.42 * CUE_INNER_RADIUS_DEG
+INNER_FILLER_RADIUS_DEG = 0.28 * CUE_INNER_RADIUS_DEG
+INNER_FILLER_LINE_WIDTH = 3
 
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
@@ -2054,27 +2056,27 @@ def _apply_pm_cue_style_wording(text: str) -> str:
         replacements = (
             (
                 "an ORANGE RING on its border (the circle keeps its normal red, blue, or green color)",
-                "a filled ORANGE DISK in the middle of one circle (the circle keeps its normal red, blue, or green color)",
+                "an ORANGE band in the middle of one circle (the outer color and the white center stay the same)",
             ),
             (
                 "an ORANGE RING on its border",
-                "a filled ORANGE DISK in the middle of one circle",
+                "an ORANGE band in the middle of one circle",
             ),
             (
                 "en ORANGE RING langs kanten (cirklen beholder sin normale røde, blå eller grønne farve)",
-                "en fyldt ORANGE DISK i midten af én cirkel (cirklen beholder sin normale røde, blå eller grønne farve)",
+                "et ORANGE bånd i midten af én cirkel (den ydre farve og det hvide centrum forbliver)",
             ),
             (
                 "en ORANGE RING langs kanten",
-                "en fyldt ORANGE DISK i midten af én cirkel",
+                "et ORANGE bånd i midten af én cirkel",
             ),
             (
                 "一个圆圈的外圈会出现橙色圆环（圆圈本身仍保持正常的红、蓝或绿色）",
-                "一个圆圈的中央会出现橙色实心圆盘（圆圈本身仍保持正常的红、蓝或绿色）",
+                "一个圆圈的中圈会变成橙色（外圈颜色和中央白色区域保持不变）",
             ),
-            ("an ORANGE RING", "a filled ORANGE DISK"),
-            ("ORANGE RING", "ORANGE DISK"),
-            ("橙色圆环", "橙色实心圆盘"),
+            ("an ORANGE RING", "an ORANGE band"),
+            ("ORANGE RING", "ORANGE band"),
+            ("橙色圆环", "橙色中圈"),
         )
         for old, new in replacements:
             text = text.replace(old, new)
@@ -2082,33 +2084,33 @@ def _apply_pm_cue_style_wording(text: str) -> str:
         replacements = (
             (
                 "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit)",
-                "the small circle in the middle of one colored circle will be replaced by a CROSS (the circle keeps its normal color and reward digit)",
+                "the small circle below the reward digit in one circle will be replaced by a TRIANGLE (the circle keeps its normal color and reward digit)",
             ),
             (
                 "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border",
-                "the small circle in the middle of one colored circle will be replaced by a CROSS",
+                "the small circle below the reward digit in one circle will be replaced by a TRIANGLE",
             ),
             (
                 "a circle had a DASHED WHITE OUTLINE",
-                "a circle had a CROSS instead of its small inner circle",
+                "a circle had a TRIANGLE instead of its small inner circle",
             ),
             (
                 "one circle will have a DASHED WHITE OUTLINE",
-                "the small circle in the middle of one colored circle will be replaced by a CROSS",
+                "the small circle below the reward digit in one circle will be replaced by a TRIANGLE",
             ),
             (
                 "一个圆圈会出现虚线白色边框，而不是正常的实线边框（圆圈仍保持正常的颜色和奖励数字）",
-                "一个圆圈中央的小圆会被换成十字（圆圈仍保持正常的颜色和奖励数字）",
+                "一个圆圈白色区域内数字下方的小圆会被换成三角形（圆圈仍保持正常的颜色和奖励数字）",
             ),
             (
                 "får én af cirklerne en STIPLET HVID KANT i stedet for den normale, ubrudte kant (cirklen beholder sin normale farve og sit belønningsciffer)",
-                "bliver den lille cirkel i midten af én farvecirkel erstattet af et KORS (cirklen beholder sin normale farve og sit belønningsciffer)",
+                "bliver den lille cirkel under belønningscifferet i én cirkel erstattet af en TREKANT (cirklen beholder sin normale farve og sit belønningsciffer)",
             ),
-            ("a DASHED WHITE OUTLINE", "a CROSS"),
-            ("DASHED WHITE OUTLINE", "CROSS"),
-            ("虚线白色边框", "十字"),
-            ("en STIPLET HVID KANT", "et KORS"),
-            ("STIPLET HVID KANT", "KORS"),
+            ("a DASHED WHITE OUTLINE", "a TRIANGLE"),
+            ("DASHED WHITE OUTLINE", "TRIANGLE"),
+            ("虚线白色边框", "三角形"),
+            ("en STIPLET HVID KANT", "en TREKANT"),
+            ("STIPLET HVID KANT", "TREKANT"),
         )
         for old, new in replacements:
             text = text.replace(old, new)
@@ -2118,20 +2120,23 @@ def _apply_pm_cue_style_wording(text: str) -> str:
 
 def _maybe_add_inner_filler_instruction_note(text: str) -> str:
     """Remind participants that the inner circle is a filler, except on PM screens."""
-    if "CROSS" in text or "十字" in text or "KORS" in text:
+    if "TRIANGLE" in text or "三角形" in text or "TREKANT" in text:
         return text
-    if "small circle in the middle" in text or "小圆" in text or "lille cirkel i midten" in text:
+    if "small circle below" in text or "数字下方的小圆" in text or "lille cirkel under" in text:
         return text
     if "zh" in text[:20] or "圆圈" in text or "按 *space*" in text:
-        note = "每个彩色圆圈中央都有一个小圆。请忽略这个小圆。\n\n"
+        note = "每个彩色圆圈的白色区域内，数字下方还有一个小圆。请忽略这个小圆。\n\n"
         marker = "按 *space*"
     elif "Tryk på *space*" in text or "cirklen med den højeste" in text:
-        note = "Hver farvet cirkel har en lille cirkel i midten. Ignorer den indre cirkel.\n\n"
+        note = (
+            "I den hvide midte af hver farvet cirkel er der et belønningsciffer øverst "
+            "og en lille cirkel nederst. Ignorer den lille cirkel.\n\n"
+        )
         marker = "Tryk på *space*"
     else:
         note = (
-            "Each colored circle has a small circle in the middle. "
-            "Ignore that inner circle.\n\n"
+            "In the white center of each colored circle, the reward digit is on top "
+            "and a small circle is below it. Ignore that small circle.\n\n"
         )
         marker = "Press *space*"
     if marker in text:
@@ -2870,12 +2875,12 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
     if style == "center_disk":
         visual.Circle(
             win,
-            radius=FOCAL_PM_CENTER_DISK_RADIUS,
+            radius=FOCAL_PM_ORANGE_BAND_RADIUS,
             pos=pos,
             fillColor=orange,
             lineColor=None,
             colorSpace=COLOR_SPACE,
-            edges=64,
+            edges=128,
         ).draw()
         return
 
@@ -2943,11 +2948,11 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
 
 
 def _inner_filler_pos(circle_pos):
-    return (circle_pos[0], circle_pos[1] + INNER_FILLER_Y_OFFSET_DEG)
+    return (circle_pos[0], circle_pos[1] + INNER_FILLER_SHAPE_Y_OFFSET_DEG)
 
 
 def draw_inner_filler_circle(win, circle_pos):
-    """Baseline filler: small unfilled circle inside the white inner disk."""
+    """Ongoing filler: small unfilled circle in the lower white inner disk."""
     visual.Circle(
         win,
         radius=INNER_FILLER_RADIUS_DEG,
@@ -2960,22 +2965,26 @@ def draw_inner_filler_circle(win, circle_pos):
     ).draw()
 
 
-def draw_inner_filler_cross(win, circle_pos):
-    """Nonfocal PM target: replace the filler circle with a cross."""
+def draw_inner_filler_triangle(win, circle_pos):
+    """Nonfocal PM target: replace the filler circle with an unfilled triangle."""
     x0, y0 = _inner_filler_pos(circle_pos)
-    half = INNER_FILLER_CROSS_HALF_DEG
-    for start, end in (
-        ((x0 - half, y0), (x0 + half, y0)),
-        ((x0, y0 - half), (x0, y0 + half)),
-    ):
-        visual.Line(
-            win,
-            start=start,
-            end=end,
-            lineColor=COLORS["black"],
-            colorSpace=COLOR_SPACE,
-            lineWidth=INNER_FILLER_LINE_WIDTH,
-        ).draw()
+    r = INNER_FILLER_RADIUS_DEG
+    half_base = r * math.sqrt(3.0) / 2.0
+    vertices = [
+        (x0, y0 + r),
+        (x0 - half_base, y0 - r / 2.0),
+        (x0 + half_base, y0 - r / 2.0),
+    ]
+    visual.ShapeStim(
+        win,
+        vertices=vertices,
+        closeShape=True,
+        fillColor=None,
+        lineColor=COLORS["black"],
+        colorSpace=COLOR_SPACE,
+        lineWidth=INNER_FILLER_LINE_WIDTH,
+        units=USE_UNITS,
+    ).draw()
 
 
 def _confirm_exit_or_continue():
@@ -3898,7 +3907,7 @@ for trial in trials:
             and nonfocal_pm_style == "dashed_outline"
             and position_name == trial["pm_position"]
         )
-        is_nonfocal_cross_target = (
+        is_nonfocal_triangle_target = (
             trial["is_pm_trial"]
             and trial["pm_trial_kind"] == "nonfocal"
             and nonfocal_pm_style == "center_x"
@@ -3906,8 +3915,10 @@ for trial in trials:
         )
         show_inner_filler = _uses_inner_filler_symbols()
         reward_pos = pos
+        reward_height = REWARD_TEXT_HEIGHT
         if show_inner_filler:
             reward_pos = (pos[0], pos[1] + INNER_FILLER_NUMBER_Y_OFFSET_DEG)
+            reward_height = INNER_FILLER_REWARD_TEXT_HEIGHT
 
         outer_circle = visual.Circle(
             win,
@@ -3934,16 +3945,18 @@ for trial in trials:
             pos=reward_pos,
             color=COLORS["black"],
             colorSpace=COLOR_SPACE,
-            height=REWARD_TEXT_HEIGHT,
+            height=reward_height,
         )
 
         outer_circle.draw()
+        if is_focal_pm_target and focal_pm_style == "center_disk":
+            draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
         if is_focal_pm_target and focal_pm_style in ("center_ring", "halo"):
             draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
         inner_circle.draw()
         if is_focal_pm_target and focal_pm_style == "marker_bg":
             draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
-        elif is_focal_pm_target and focal_pm_style in ("inner_dot", "small_patch", "center_disk"):
+        elif is_focal_pm_target and focal_pm_style in ("inner_dot", "small_patch"):
             draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
             reward_text.draw()
         else:
@@ -3967,8 +3980,8 @@ for trial in trials:
                 ).draw()
 
         if show_inner_filler:
-            if is_nonfocal_cross_target:
-                draw_inner_filler_cross(win, pos)
+            if is_nonfocal_triangle_target:
+                draw_inner_filler_triangle(win, pos)
             else:
                 draw_inner_filler_circle(win, pos)
 
