@@ -645,3 +645,58 @@ isdir(fig_dir) || mkdir(fig_dir)
 fig_path = joinpath(fig_dir, "mis_lba_pm_basic_sub$(subject_id).png")
 savefig(fig, fig_path)
 println("Saved plot: ", fig_path)
+
+# Overlay: all 3 phases on the same axes.
+# Color = phase. Solid = prediction. Dashed = observed.
+phase_color = Dict(:baseline => "#4C78A8", :focal => "#F58518", :nonfocal => "#54A24B")
+
+function overlay_panel(data_mat, pred_dict, pred_lo_dict, pred_hi_dict; title="", ylabel="", ylims=:auto, show_legend=false)
+    p = plot(
+        xticks=xt, xrotation=45, ylabel=ylabel, title=title,
+        ylims=ylims, legend=show_legend ? :outertopright : false,
+    )
+    for (ip, ph) in enumerate(phase_order)
+        c = phase_color[ph]
+        plot!(
+            p, x, data_mat[ip, :];
+            color=c, linestyle=:dash, marker=:circle, lw=2,
+            label=show_legend ? "$(phase_label[ph]) obs" : "",
+        )
+        plot!(
+            p, x, pred_dict[ph];
+            color=c, linestyle=:solid, marker=:diamond, lw=2,
+            yerror=(pred_dict[ph] .- pred_lo_dict[ph], pred_hi_dict[ph] .- pred_dict[ph]),
+            label=show_legend ? "$(phase_label[ph]) pred" : "",
+        )
+    end
+    return p
+end
+
+p_over_acc = overlay_panel(
+    data_acc, pred_acc, pred_acc_lo, pred_acc_hi;
+    title="Accuracy", ylabel="P(max reward)", ylims=(0, 1.05), show_legend=true,
+)
+p_over_q10 = overlay_panel(
+    data_rt10, pred_rt10, pred_rt10_lo, pred_rt10_hi;
+    title="q10", ylabel="RT (s)", ylims=pad(rt10_lim),
+)
+p_over_q50 = overlay_panel(
+    data_rt50, pred_rt50, pred_rt50_lo, pred_rt50_hi;
+    title="q50", ylabel="RT (s)", ylims=pad(rt50_lim),
+)
+p_over_q90 = overlay_panel(
+    data_rt90, pred_rt90, pred_rt90_lo, pred_rt90_hi;
+    title="q90", ylabel="RT (s)", ylims=pad(rt90_lim),
+)
+
+fig_over = plot(
+    p_over_acc, p_over_q10, p_over_q50, p_over_q90;
+    layout=@layout([a{0.42w} [b; c; d]]),
+    size=(1500, 900),
+    plot_title="sub$(subject_id)  |  phase overlay  |  dashed=observed  solid=predicted\n$(param_line)",
+    plot_titlefontsize=10,
+    top_margin=10Plots.mm,
+)
+fig_over_path = joinpath(fig_dir, "mis_lba_pm_basic_sub$(subject_id)_phase_overlay.png")
+savefig(fig_over, fig_over_path)
+println("Saved plot: ", fig_over_path)
