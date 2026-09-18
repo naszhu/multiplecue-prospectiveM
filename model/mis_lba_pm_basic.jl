@@ -8,6 +8,7 @@ using CSV, DataFrames, Statistics, Optim, Distributions, Plots, Random
 subject_id = 28
 min_rt_ms = 100.0
 n_starts = 1
+n_pred_sims = 50   # simulated datasets for prediction means + 95% interval
 sv = 1.0   # LBA drift noise; fixed as a scale (same idea as Strickland)
 
 # If true, the PM weight sits in the same MIS sum as the three locations,
@@ -30,6 +31,11 @@ vary_k_by_phase = false
 # =============================================================================
 
 flag_on(x) = lowercase(strip(string(x))) in ("1", "1.0", "true", "t", "yes", "y")
+
+function cue_label(x)
+    s = strip(replace(string(x), "\"" => ""))
+    return startswith(s, "(") ? s : "(" * s * ")"
+end
 
 function is_timeout(response)
     s = lowercase(strip(string(response)))
@@ -117,6 +123,30 @@ function lba_race_pdf(rt, choice, v, A, k_vec, t0, s)
         pneg *= Phi(-v[i] / s)
     end
     return max(lik / max(1 - pneg, 1e-12), 0.0)
+end
+
+# Draw one LBA race. Used for RT/accuracy prediction plots, not for fitting.
+function lba_simulate(rng, v, A, k_vec, t0, s)
+    n = length(v)
+    drifts = Vector{Float64}(undef, n)
+    while true
+        for i in 1:n
+            drifts[i] = v[i] + s * randn(rng)
+        end
+        any(>(0), drifts) && break
+    end
+    start = A .* rand(rng, n)
+    best_i = 1
+    best_t = Inf
+    for i in 1:n
+        drifts[i] <= 0 && continue
+        t = (A + k_vec[i] - start[i]) / drifts[i]
+        if t < best_t
+            best_t = t
+            best_i = i
+        end
+    end
+    return best_i, t0 + best_t
 end
 
 # MIS weights for the three locations, then optional PM weight.
@@ -255,6 +285,10 @@ for i in 1:nrow(data)
         choice[i] = parse(Int, string(data.RespLoc[i]))
     end
 end
+
+conditions = [cue_label(c) for c in data.CueCondition]
+condition_order = ["(1)", "(2)", "(3)", "(1,2)", "(1,3)", "(2,3)"]
+present_conditions = [cc for cc in condition_order if cc in Set(conditions)]
 
 r_max = maximum(vcat(trial_rewards...))
 t0_upper = minimum(rt_sec) - 0.001
@@ -397,93 +431,215 @@ end
 println("NLL: ", round(best_nll; digits=2))
 
 # =============================================================================
-# Simple predicted vs data plot (MIS choice probabilities, no RT integral)
+# Prediction plot: phases (columns) x accuracy/RT quantiles (rows)
+# Strickland's figures separate control / focal / nonfocal. Cue conditions
+# stay on the x-axis (same style as the RTfit current_best plot).
+# Ongoing (non-PM) trials are used for accuracy and RT, so phase differences
+# are the PM monitoring cost. PM hit rates are printed in the title.
 # =============================================================================
 
-function mis_probs(rewards, theta, omega0, omega_pm, share_pm, n_acc, r_max)
-    w = [rv == 0 ? omega0 : exp(theta * rv / r_max) for rv in rewards]
-    if n_acc == 3
-        return w ./ sum(w)
-    end
-    if share_pm
-        w_all = [w[1], w[2], w[3], omega_pm]
-        return w_all ./ sum(w_all)
-    else
-        p = w ./ sum(w)
-        p_pm = omega_pm / (omega_pm + 1.0)
-        return [(1 - p_pm) * p[1], (1 - p_pm) * p[2], (1 - p_pm) * p[3], p_pm]
-    end
+chose_max_reward(ch, rewards) = ch in 1:length(rewards) && rewards[ch] == maximum(rewards)
+
+function trial_lba(i, x)
+    n_acc = is_pm_phase[i] ? 4 : 3
+    C_ong, C_pm = C_pair(x, phase[i])
+    k_ong, k_pm = k_pair(x, phase[i])
+    C_vec = trial_C_vec(C_ong, C_pm, n_acc)
+    k_vec = trial_k_vec(k_ong, k_pm, n_acc)
+    omega_pm = trial_omega_pm(x, is_pm_trial[i])
+    v = trial_drifts(trial_rewards[i], x[1], x[2], omega_pm, C_vec, share_pm_capacity, r_max)
+    return v, x[idx_A], k_vec, x[idx_t0]
 end
 
 phase_order = [:baseline, :focal, :nonfocal]
 phase_label = Dict(:baseline => "Baseline", :focal => "Focal PM", :nonfocal => "Nonfocal PM")
+n_ph = length(phase_order)
+n_cond = length(present_conditions)
 
-pred_best = Float64[]
-data_best = Float64[]
-pred_pmhit = Float64[]
-data_pmhit = Float64[]
-plot_names = String[]
-
+# Ongoing-task cells: phase × cue condition, excluding PM-present trials.
+ong_idx = Dict{Tuple{Symbol, String}, Vector{Int}}()
 for ph in phase_order
-    idx = findall(i -> phase[i] == ph && !is_pm_trial[i] && choice[i] != 4, 1:nrow(data))
-    isempty(idx) && continue
-    pred = Float64[]
-    obs = Float64[]
-    for i in idx
-        n_acc = is_pm_phase[i] ? 4 : 3
-        omega_pm = is_pm_trial[i] ? omega_pm_present_hat : omega_pm_absent_hat
-        p = mis_probs(trial_rewards[i], theta_hat, omega0_hat, omega_pm, share_pm_capacity, n_acc, r_max)
-        best_r = maximum(trial_rewards[i])
-        best_locs = findall(==(best_r), trial_rewards[i])
-        push!(pred, sum(p[j] for j in best_locs))
-        push!(obs, choice[i] in best_locs ? 1.0 : 0.0)
+    for cc in present_conditions
+        ong_idx[(ph, cc)] = findall(i -> phase[i] == ph && conditions[i] == cc && !is_pm_trial[i], 1:nrow(data))
     end
-    push!(plot_names, phase_label[ph])
-    push!(pred_best, mean(pred))
-    push!(data_best, mean(obs))
-    println(phase_label[ph], " ongoing n=", length(idx),
-            " P(best) pred=", round(mean(pred); digits=3),
-            " data=", round(mean(obs); digits=3))
+end
+pm_idx = Dict(ph => findall(i -> phase[i] == ph && is_pm_trial[i], 1:nrow(data)) for ph in [:focal, :nonfocal])
+
+function cell_acc(idx, ch)
+    isempty(idx) && return NaN
+    return mean(chose_max_reward(ch[i], trial_rewards[i]) for i in idx)
 end
 
-pm_names = String[]
+function cell_rtq(idx, rts)
+    isempty(idx) && return (NaN, NaN, NaN)
+    q = quantile(rts[idx], [0.1, 0.5, 0.9])
+    return (q[1], q[2], q[3])
+end
+
+data_acc = fill(NaN, n_ph, n_cond)
+data_rt10 = fill(NaN, n_ph, n_cond)
+data_rt50 = fill(NaN, n_ph, n_cond)
+data_rt90 = fill(NaN, n_ph, n_cond)
+for (ip, ph) in enumerate(phase_order)
+    for (jc, cc) in enumerate(present_conditions)
+        idx = ong_idx[(ph, cc)]
+        data_acc[ip, jc] = cell_acc(idx, choice)
+        q10, q50, q90 = cell_rtq(idx, rt_sec)
+        data_rt10[ip, jc] = q10
+        data_rt50[ip, jc] = q50
+        data_rt90[ip, jc] = q90
+        println(phase_label[ph], " ", cc, " n=", length(idx),
+                " acc=", round(data_acc[ip, jc]; digits=3),
+                " rt=", round(q10; digits=3), "/", round(q50; digits=3), "/", round(q90; digits=3))
+    end
+end
+
+println("Simulating ", n_pred_sims, " datasets for prediction intervals ...")
+rng = MersenneTwister(20260918)
+acc_sims = fill(NaN, n_pred_sims, n_ph, n_cond)
+rt10_sims = fill(NaN, n_pred_sims, n_ph, n_cond)
+rt50_sims = fill(NaN, n_pred_sims, n_ph, n_cond)
+rt90_sims = fill(NaN, n_pred_sims, n_ph, n_cond)
+pmhit_sims = Dict(ph => zeros(n_pred_sims) for ph in [:focal, :nonfocal])
+sim_choice = Vector{Int}(undef, nrow(data))
+sim_rt = Vector{Float64}(undef, nrow(data))
+for s in 1:n_pred_sims
+    for i in eachindex(trial_rewards)
+        v, A, k_vec, t0 = trial_lba(i, best)
+        sim_choice[i], sim_rt[i] = lba_simulate(rng, v, A, k_vec, t0, sv)
+    end
+    for (ip, ph) in enumerate(phase_order)
+        for (jc, cc) in enumerate(present_conditions)
+            idx = ong_idx[(ph, cc)]
+            isempty(idx) && continue
+            acc_sims[s, ip, jc] = cell_acc(idx, sim_choice)
+            q10, q50, q90 = cell_rtq(idx, sim_rt)
+            rt10_sims[s, ip, jc] = q10
+            rt50_sims[s, ip, jc] = q50
+            rt90_sims[s, ip, jc] = q90
+        end
+    end
+    for ph in [:focal, :nonfocal]
+        idx = pm_idx[ph]
+        pmhit_sims[ph][s] = isempty(idx) ? NaN : mean(sim_choice[i] == 4 for i in idx)
+    end
+end
+
+function sim_mean_ci(mat)
+    n = size(mat, 2)
+    mu = fill(NaN, n)
+    lo = fill(NaN, n)
+    hi = fill(NaN, n)
+    for j in 1:n
+        v = filter(isfinite, mat[:, j])
+        isempty(v) && continue
+        mu[j] = mean(v)
+        lo[j] = quantile(v, 0.025)
+        hi[j] = quantile(v, 0.975)
+    end
+    return mu, lo, hi
+end
+
+pred_acc = Dict{Symbol, Vector{Float64}}()
+pred_acc_lo = Dict{Symbol, Vector{Float64}}()
+pred_acc_hi = Dict{Symbol, Vector{Float64}}()
+pred_rt10 = Dict{Symbol, Vector{Float64}}()
+pred_rt10_lo = Dict{Symbol, Vector{Float64}}()
+pred_rt10_hi = Dict{Symbol, Vector{Float64}}()
+pred_rt50 = Dict{Symbol, Vector{Float64}}()
+pred_rt50_lo = Dict{Symbol, Vector{Float64}}()
+pred_rt50_hi = Dict{Symbol, Vector{Float64}}()
+pred_rt90 = Dict{Symbol, Vector{Float64}}()
+pred_rt90_lo = Dict{Symbol, Vector{Float64}}()
+pred_rt90_hi = Dict{Symbol, Vector{Float64}}()
+for (ip, ph) in enumerate(phase_order)
+    pred_acc[ph], pred_acc_lo[ph], pred_acc_hi[ph] = sim_mean_ci(acc_sims[:, ip, :])
+    pred_rt10[ph], pred_rt10_lo[ph], pred_rt10_hi[ph] = sim_mean_ci(rt10_sims[:, ip, :])
+    pred_rt50[ph], pred_rt50_lo[ph], pred_rt50_hi[ph] = sim_mean_ci(rt50_sims[:, ip, :])
+    pred_rt90[ph], pred_rt90_lo[ph], pred_rt90_hi[ph] = sim_mean_ci(rt90_sims[:, ip, :])
+end
+
+data_pmhit = Dict{Symbol, Float64}()
+pred_pmhit = Dict{Symbol, Float64}()
 for ph in [:focal, :nonfocal]
-    idx = findall(i -> phase[i] == ph && is_pm_trial[i], 1:nrow(data))
-    isempty(idx) && continue
-    pred = Float64[]
-    obs = Float64[]
-    for i in idx
-        p = mis_probs(trial_rewards[i], theta_hat, omega0_hat, omega_pm_present_hat, share_pm_capacity, 4, r_max)
-        push!(pred, p[4])
-        push!(obs, choice[i] == 4 ? 1.0 : 0.0)
-    end
-    push!(pm_names, phase_label[ph])
-    push!(pred_pmhit, mean(pred))
-    push!(data_pmhit, mean(obs))
-    println(phase_label[ph], " PM n=", length(idx),
-            " hit pred=", round(mean(pred); digits=3),
-            " data=", round(mean(obs); digits=3))
+    idx = pm_idx[ph]
+    data_pmhit[ph] = isempty(idx) ? NaN : mean(choice[i] == 4 for i in idx)
+    pred_pmhit[ph] = mean(pmhit_sims[ph])
+    println(phase_label[ph], " PM hit data=", round(data_pmhit[ph]; digits=3),
+            " pred=", round(pred_pmhit[ph]; digits=3), " n=", length(idx))
 end
 
-p_acc = plot(
-    1:length(plot_names), pred_best;
-    label="Prediction", marker=:circle, lw=2, color=:blue,
-    ylim=(0, 1.05), xticks=(1:length(plot_names), plot_names),
-    ylabel="P(highest reward)", title="Ongoing choice (non-PM trials)",
-    legend=:bottomright,
-)
-plot!(p_acc, 1:length(plot_names), data_best; label="Data", marker=:diamond, lw=2, color=:red)
+x = collect(1:n_cond)
+xt = (x, present_conditions)
+rt10_lim = extrema(filter(isfinite, vcat(vec(data_rt10), pred_rt10[:baseline], pred_rt10[:focal], pred_rt10[:nonfocal])))
+rt50_lim = extrema(filter(isfinite, vcat(vec(data_rt50), pred_rt50[:baseline], pred_rt50[:focal], pred_rt50[:nonfocal])))
+rt90_lim = extrema(filter(isfinite, vcat(vec(data_rt90), pred_rt90[:baseline], pred_rt90[:focal], pred_rt90[:nonfocal])))
+pad(lim) = (lim[1] - 0.05 * (lim[2] - lim[1]), lim[2] + 0.05 * (lim[2] - lim[1]))
 
-p_pm = plot(
-    1:length(pm_names), pred_pmhit;
-    label="Prediction", marker=:circle, lw=2, color=:blue,
-    ylim=(0, 1.05), xticks=(1:length(pm_names), pm_names),
-    ylabel="PM hit rate", title="PM trials",
-    legend=:bottomright,
-)
-plot!(p_pm, 1:length(pm_names), data_pmhit; label="Data", marker=:diamond, lw=2, color=:red)
+function phase_panel(data_y, pred_y, pred_lo, pred_hi; title="", ylabel="", ylims=:auto, pred_color="#2C7FB8", show_legend=false)
+    p = plot(
+        x, data_y;
+        label="Observed", color=:black, marker=:circle, lw=1.4,
+        xticks=xt, xrotation=45, ylabel=ylabel, title=title,
+        ylims=ylims, legend=show_legend ? :bottomright : false,
+    )
+    plot!(
+        p, x, pred_y;
+        label="Predicted", color=pred_color, marker=:circle, lw=1.4,
+        yerror=(pred_y .- pred_lo, pred_hi .- pred_y),
+    )
+    return p
+end
 
-fig = plot(p_acc, p_pm; layout=(1, 2), size=(900, 400))
+panels = Plots.Plot[]
+for (ip, ph) in enumerate(phase_order)
+    push!(panels, phase_panel(
+        data_acc[ip, :], pred_acc[ph], pred_acc_lo[ph], pred_acc_hi[ph];
+        title=phase_label[ph], ylabel=ip == 1 ? "P(max reward)" : "",
+        ylims=(0, 1.05), pred_color="#2C7FB8", show_legend=(ip == 1),
+    ))
+end
+for (ip, ph) in enumerate(phase_order)
+    push!(panels, phase_panel(
+        data_rt10[ip, :], pred_rt10[ph], pred_rt10_lo[ph], pred_rt10_hi[ph];
+        title="q10", ylabel=ip == 1 ? "RT (s)" : "",
+        ylims=pad(rt10_lim), pred_color="#D95F0E",
+    ))
+end
+for (ip, ph) in enumerate(phase_order)
+    push!(panels, phase_panel(
+        data_rt50[ip, :], pred_rt50[ph], pred_rt50_lo[ph], pred_rt50_hi[ph];
+        title="q50", ylabel=ip == 1 ? "RT (s)" : "",
+        ylims=pad(rt50_lim), pred_color="#D95F0E",
+    ))
+end
+for (ip, ph) in enumerate(phase_order)
+    push!(panels, phase_panel(
+        data_rt90[ip, :], pred_rt90[ph], pred_rt90_lo[ph], pred_rt90_hi[ph];
+        title="q90", ylabel=ip == 1 ? "RT (s)" : "",
+        ylims=pad(rt90_lim), pred_color="#D95F0E", show_legend=(ip == 3),
+    ))
+end
+
+flag_line = join([
+    "share_pm_capacity=$(share_pm_capacity)",
+    "vary_C_by_accumulator=$(vary_C_by_accumulator)",
+    "vary_C_by_phase=$(vary_C_by_phase)",
+    "vary_k_by_accumulator=$(vary_k_by_accumulator)",
+    "vary_k_by_phase=$(vary_k_by_phase)",
+], "   ")
+param_line = join(["$(name)=$(round(val; digits=3))" for (name, val) in zip(param_names, best)], "   ")
+pmhit_line = "PM hit  focal data/pred=$(round(data_pmhit[:focal]; digits=3))/$(round(pred_pmhit[:focal]; digits=3))   nonfocal data/pred=$(round(data_pmhit[:nonfocal]; digits=3))/$(round(pred_pmhit[:nonfocal]; digits=3))"
+title_text = "sub$(subject_id)  |  NLL=$(round(best_nll; digits=1))  |  $(pmhit_line)\n$(flag_line)\n$(param_line)"
+
+fig = plot(
+    panels...;
+    layout=(4, 3),
+    size=(1800, 1250),
+    plot_title=title_text,
+    plot_titlefontsize=10,
+    top_margin=12Plots.mm,
+)
 fig_dir = joinpath(@__DIR__, "figs")
 isdir(fig_dir) || mkdir(fig_dir)
 fig_path = joinpath(fig_dir, "mis_lba_pm_basic_sub$(subject_id).png")
