@@ -1,5 +1,8 @@
 """
-PsychoPy version of the multiple-cue prospective memory experiment.
+PsychoPy version of the multiple-cue prospective memory experiment (v3).
+
+Copy of testmain_demo.py with configurable focal/nonfocal PM cue styles and a
+higher PM-trial rate when the dialog participant is "test".
 
 Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
 Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
@@ -52,6 +55,13 @@ DEBUG_CONFIG = {
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
+# Focal PM cue: "center_ring" (original orange ring) or "center_disk" (filled orange disk in the circle center).
+FOCAL_PM_STYLE = "center_disk"
+# Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x" (white X at screen center).
+NONFOCAL_PM_STYLE = "center_x"
+# Dialog participant "test" only: PM trials per cue per block. Real experiment uses 1
+# (6 PM / 44). 3 gives 18 PM + 26 ongoing, still balanced across 6 cue conditions.
+TEST_PM_TRIALS_PER_CUE_PER_BLOCK = 3
 ############################# TO MODIFY ABOVE
 
 
@@ -75,7 +85,7 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v2.1-2026-08-27"
+CODE_VERSION = "v3.0-2026-09-18"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -149,11 +159,66 @@ TRIALS_PER_BLOCK = TOTAL_TRIALS_PER_SESSION // N_BLOCKS
 REPS_PER_CUE_PER_BLOCK = TRIALS_PER_BLOCK // N_CUE_CONDITIONS
 BLOCK_TRIAL_REMAINDER = TRIALS_PER_BLOCK % N_CUE_CONDITIONS
 
-PM_TRIALS_PER_CUE_PER_BLOCK = 1
+# Main PM blocks: 44 trials, 6 cue conditions. PM count is k per cue, so 6k PM
+# trials plus the remaining ongoing trials must equal 44.
+# k=1 is the real-experiment rate (6 PM / 44 ≈ 14%).
+# For dialog participant "test", use k=3 (18 PM / 44): every cue still has 4–5
+# ongoing trials (26 ongoing = 4*6 + 2 remainder). Max k with ≥1 ongoing per
+# cue is 6 (36 PM, 8 ongoing).
+PM_TRIALS_PER_CUE_PER_BLOCK_DEFAULT = 1
+PM_TRIALS_PER_CUE_PER_BLOCK = PM_TRIALS_PER_CUE_PER_BLOCK_DEFAULT
 PM_TRIALS_PER_BLOCK = N_CUE_CONDITIONS * PM_TRIALS_PER_CUE_PER_BLOCK
 ONGOING_PER_BLOCK_PM_PHASE = TRIALS_PER_BLOCK - PM_TRIALS_PER_BLOCK
 ONGOING_REPS_PER_CUE_PM = ONGOING_PER_BLOCK_PM_PHASE // N_CUE_CONDITIONS
 ONGOING_REMAINDER_PM = ONGOING_PER_BLOCK_PM_PHASE % N_CUE_CONDITIONS
+
+FOCAL_PM_STYLE_CHOICES = ("center_ring", "center_disk")
+NONFOCAL_PM_STYLE_CHOICES = ("dashed_outline", "center_x")
+
+
+def _refresh_pm_trial_counts() -> None:
+    """Keep derived PM-block counts in sync after the per-cue rate changes."""
+    global PM_TRIALS_PER_BLOCK, ONGOING_PER_BLOCK_PM_PHASE
+    global ONGOING_REPS_PER_CUE_PM, ONGOING_REMAINDER_PM
+    if PM_TRIALS_PER_CUE_PER_BLOCK < 1:
+        raise SystemExit(
+            f"PM_TRIALS_PER_CUE_PER_BLOCK must be >= 1, got {PM_TRIALS_PER_CUE_PER_BLOCK}."
+        )
+    pm_per_block = N_CUE_CONDITIONS * PM_TRIALS_PER_CUE_PER_BLOCK
+    if pm_per_block >= TRIALS_PER_BLOCK:
+        raise SystemExit(
+            f"PM trials per block ({pm_per_block}) must leave ongoing trials in "
+            f"a {TRIALS_PER_BLOCK}-trial block."
+        )
+    ongoing = TRIALS_PER_BLOCK - pm_per_block
+    PM_TRIALS_PER_BLOCK = pm_per_block
+    ONGOING_PER_BLOCK_PM_PHASE = ongoing
+    ONGOING_REPS_PER_CUE_PM = ongoing // N_CUE_CONDITIONS
+    ONGOING_REMAINDER_PM = ongoing % N_CUE_CONDITIONS
+
+
+def _apply_test_pm_frequency(participant: str) -> None:
+    """Raise PM rate for the dialog participant 'test' only."""
+    global PM_TRIALS_PER_CUE_PER_BLOCK
+    if str(participant).strip().lower() != "test":
+        return
+    PM_TRIALS_PER_CUE_PER_BLOCK = TEST_PM_TRIALS_PER_CUE_PER_BLOCK
+    _refresh_pm_trial_counts()
+
+
+def _validate_pm_cue_styles() -> None:
+    if FOCAL_PM_STYLE not in FOCAL_PM_STYLE_CHOICES:
+        raise SystemExit(
+            f"FOCAL_PM_STYLE must be one of {FOCAL_PM_STYLE_CHOICES}, got {FOCAL_PM_STYLE!r}."
+        )
+    if NONFOCAL_PM_STYLE not in NONFOCAL_PM_STYLE_CHOICES:
+        raise SystemExit(
+            f"NONFOCAL_PM_STYLE must be one of {NONFOCAL_PM_STYLE_CHOICES}, got {NONFOCAL_PM_STYLE!r}."
+        )
+
+
+_validate_pm_cue_styles()
+_refresh_pm_trial_counts()
 
 MAX_SESSION = (
     N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 2 * N_PM_SESSIONS_PER_KIND
@@ -816,7 +881,11 @@ FOCAL_PM_PATCH_OFFSET = 0.55 * CUE_OUTER_RADIUS_DEG
 FOCAL_PM_HALO_RADIUS = CUE_OUTER_RADIUS_DEG * 1.08
 FOCAL_PM_HALO_LINE_WIDTH = 7
 FOCAL_PM_MARKER_BG_RADIUS = CUE_INNER_RADIUS_DEG * 0.72
-FOCAL_PM_STYLE = "center_ring"
+FOCAL_PM_CENTER_DISK_RADIUS = CUE_INNER_RADIUS_DEG * 0.62
+NONFOCAL_PM_X_HALF_SIZE_DEG = 12 * STIM_FACTOR
+NONFOCAL_PM_X_LINE_WIDTH = 7
+SCREEN_CENTER_POSITION = (0.0, 0.0)
+SCREEN_CENTER_POSITION_NAME = "screen_center"
 
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
@@ -907,12 +976,14 @@ POSITION_NAME_TO_ID = {
     "bottom_left": 2,
     "bottom_right": 3,
     "center": 0,
+    "screen_center": 4,
 }
 POSITION_ID_TO_LABEL = {
     1: "top",
     2: "bottom_left",
     3: "bottom_right",
     0: "center",
+    4: "screen_center",
 }
 
 
@@ -1092,6 +1163,7 @@ def _build_trial_row(
         "PMIntrusion": pm_intrusion,
         "PMReward": PM_REWARD if is_pm_trial else 0,
         "FocalPMStyle": trial.get("focal_pm_style", FOCAL_PM_STYLE) if pm_kind == "focal" else "",
+        "NonfocalPMStyle": trial.get("nonfocal_pm_style", NONFOCAL_PM_STYLE) if pm_kind == "nonfocal" else "",
         "CueTime": round(cue_time * 1000, 2),
         "PointTargetTime": round((cue_time + rt_sec) * 1000, 2),
         "ColorTargetTime": round(cue_time * 1000, 2),
@@ -1154,7 +1226,7 @@ DAT_COLUMN_DESCRIPTIONS = {
     "CumReward": "Cumulative monetary-style score (points x REWARD_MONEY_FACTOR), running total.",
     "PMTrial": "1 if this trial includes a prospective-memory cue; 0 otherwise.",
     "PMKind": "focal, nonfocal, or empty.",
-    "PMPosition": "Stimulus location name of the PM cue (top, bottom_left, bottom_right, center).",
+    "PMPosition": "Stimulus location name of the PM cue (top, bottom_left, bottom_right, center, screen_center).",
     "PMPositionId": "Numeric location id of the PM cue; 0 for center-only layout or none.",
     "PMKey": "Key assigned to PM responses.",
     "PMResponse": "1 if participant pressed the PM key on this trial; 0 otherwise.",
@@ -1162,6 +1234,7 @@ DAT_COLUMN_DESCRIPTIONS = {
     "PMIntrusion": "1 if participant pressed the PM key on a non-PM trial; 0 otherwise.",
     "PMReward": "PM bonus points available when PMTrial=1; 0 on ongoing trials.",
     "FocalPMStyle": "Focal PM marker style when PMKind=focal; empty otherwise.",
+    "NonfocalPMStyle": "Nonfocal PM marker style when PMKind=nonfocal; empty otherwise.",
     "CueTime": "Stimulus onset time from trial clock (ms).",
     "PointTargetTime": "Time of keypress from trial clock (ms), or cue time if no RT.",
     "ColorTargetTime": "Same as cue onset time here (ms).",
@@ -1251,6 +1324,8 @@ def _build_metadata(
             "pm_practice_block_included": include_pm_practice_block,
             "pm_practice_block_number": PM_PRACTICE_BLOCK_NUMBER if include_pm_practice_block else None,
             "pm_trials_per_block": PM_TRIALS_PER_BLOCK,
+            "pm_trials_per_cue_per_block": PM_TRIALS_PER_CUE_PER_BLOCK,
+            "test_pm_frequency_applied": "Y" if PARTICIPANT == "test" else "N",
             "pm_reward_points": PM_REWARD,
             "pm_key": PM_KEY,
             "blocks": n_blocks,
@@ -1378,6 +1453,7 @@ def _build_metadata(
             "background_color": list(BACKGROUND_COLOR),
             "stimulus_opacity": STIMULUS_OPACITY,
             "focal_pm_style": FOCAL_PM_STYLE,
+            "nonfocal_pm_style": NONFOCAL_PM_STYLE,
         },
         "column_order": dat_columns,
         "column_definitions": {
@@ -1646,7 +1722,12 @@ def _ongoing_reps_for_cue(
     trials_per_block: int,
 ) -> int:
     if session_phase in ("focal_pm", "nonfocal_pm"):
-        ongoing_per_block = trials_per_block - n_cue_conditions
+        ongoing_per_block = trials_per_block - n_cue_conditions * PM_TRIALS_PER_CUE_PER_BLOCK
+        if ongoing_per_block < 0:
+            raise ValueError(
+                f"PM trials ({n_cue_conditions * PM_TRIALS_PER_CUE_PER_BLOCK}) "
+                f"exceed block length {trials_per_block}."
+            )
         base = ongoing_per_block // n_cue_conditions
         remainder = ongoing_per_block % n_cue_conditions
     else:
@@ -1661,6 +1742,22 @@ def _pm_trial_kind_for_phase(session_phase: str):
     if session_phase == "nonfocal_pm":
         return "nonfocal"
     return None
+
+
+def _pm_position_for_trial(rng: random.Random, pm_kind: str | None, pm_positions: list[str]) -> str | None:
+    if pm_kind == "nonfocal" and NONFOCAL_PM_STYLE == "center_x":
+        return SCREEN_CENTER_POSITION_NAME
+    if not pm_positions:
+        return None
+    return rng.choice(pm_positions)
+
+
+def _pm_style_fields(pm_kind: str | None) -> dict:
+    if pm_kind == "focal":
+        return {"focal_pm_style": FOCAL_PM_STYLE, "nonfocal_pm_style": ""}
+    if pm_kind == "nonfocal":
+        return {"focal_pm_style": "", "nonfocal_pm_style": NONFOCAL_PM_STYLE}
+    return {"focal_pm_style": "", "nonfocal_pm_style": ""}
 
 
 def _make_block(
@@ -1692,16 +1789,18 @@ def _make_block(
             cue_index, session_phase, n_cue_conditions, trials_per_block
         )
 
-        if has_pm:
+        n_pm_this_cue = PM_TRIALS_PER_CUE_PER_BLOCK if has_pm else 0
+        for _ in range(n_pm_this_cue):
             pm_stub = {
                 "session_phase": session_phase,
                 "is_pm_trial": True,
                 "pm_trial_kind": pm_kind,
-                "pm_position": rng.choice(pm_positions),
+                "pm_position": _pm_position_for_trial(rng, pm_kind, pm_positions),
                 "warm_up": 0,
                 "burn_in_block": burn_in_block,
                 "pm_practice_block": pm_practice_block,
             }
+            pm_stub.update(_pm_style_fields(pm_kind))
             _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(pm_stub)
 
@@ -1715,6 +1814,7 @@ def _make_block(
                 "burn_in_block": burn_in_block,
                 "pm_practice_block": pm_practice_block,
             }
+            ongoing_stub.update(_pm_style_fields(None))
             _apply_variant_to_stub(ongoing_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(ongoing_stub)
 
@@ -1734,8 +1834,9 @@ def _burnin_pm_trial_count(session_phase: str, session_number: int) -> int:
         return 0
     gen = get_session_generation_config(session_number)
     trials_per_block = get_session_trial_config(session_number)["n_per_block"]
-    pm_rate = gen["n_cue_conditions"] / trials_per_block
-    return max(1, round(BURNIN_TRIALS_PER_BLOCK * pm_rate))
+    pm_rate = (gen["n_cue_conditions"] * PM_TRIALS_PER_CUE_PER_BLOCK) / trials_per_block
+    n_pm = max(1, round(BURNIN_TRIALS_PER_BLOCK * pm_rate))
+    return min(n_pm, BURNIN_TRIALS_PER_BLOCK - 1)
 
 
 def _make_burnin_block(
@@ -1752,8 +1853,14 @@ def _make_burnin_block(
     pm_kind = _pm_trial_kind_for_phase(session_phase)
     pm_positions = [CENTER_POSITION_NAME] if single_center else POSITION_NAMES
     n_pm = _burnin_pm_trial_count(session_phase, session_number)
-    # At most one PM trial per cue condition, as in the main blocks.
-    pm_cue_indices = set(rng.sample(range(n_cue), n_pm)) if n_pm else set()
+    # Spread PM trials across cue conditions (more than one per cue is allowed
+    # when the test-participant PM rate exceeds one PM per cue in main blocks).
+    pm_counts = [0] * n_cue
+    if n_pm:
+        cue_order = list(range(n_cue))
+        rng.shuffle(cue_order)
+        for i in range(n_pm):
+            pm_counts[cue_order[i % n_cue]] += 1
 
     n_ongoing_total = BURNIN_TRIALS_PER_BLOCK - n_pm
     base_reps = n_ongoing_total // n_cue
@@ -1762,16 +1869,17 @@ def _make_burnin_block(
     block_trials = []
     for cue_index, _cue_condition in enumerate(cue_conditions):
         pool = cue_pools[cue_index]
-        if cue_index in pm_cue_indices:
+        for _ in range(pm_counts[cue_index]):
             pm_stub = {
                 "session_phase": session_phase,
                 "is_pm_trial": True,
                 "pm_trial_kind": pm_kind,
-                "pm_position": rng.choice(pm_positions),
+                "pm_position": _pm_position_for_trial(rng, pm_kind, pm_positions),
                 "warm_up": 1,
                 "burn_in_block": 1,
                 "pm_practice_block": 0,
             }
+            pm_stub.update(_pm_style_fields(pm_kind))
             _apply_variant_to_stub(pm_stub, rng.choice(pool), single_center=single_center)
             block_trials.append(pm_stub)
         n_this = base_reps + (1 if cue_index < remainder else 0)
@@ -1785,6 +1893,7 @@ def _make_burnin_block(
                 "burn_in_block": 1,
                 "pm_practice_block": 0,
             }
+            stub.update(_pm_style_fields(None))
             _apply_variant_to_stub(stub, rng.choice(pool), single_center=single_center)
             block_trials.append(stub)
     rng.shuffle(block_trials)
@@ -1936,6 +2045,73 @@ def _instruction_color_fmt(language: str = "en") -> dict[str, str]:
     }
 
 
+def _apply_pm_cue_style_wording(text: str) -> str:
+    """Rewrite stored orange-ring / dashed instructions to the selected cue styles."""
+    if FOCAL_PM_STYLE == "center_disk":
+        replacements = (
+            (
+                "an ORANGE RING on its border (the circle keeps its normal red, blue, or green color)",
+                "a filled ORANGE DISK in the middle of one circle (the circle keeps its normal red, blue, or green color)",
+            ),
+            (
+                "an ORANGE RING on its border",
+                "a filled ORANGE DISK in the middle of one circle",
+            ),
+            (
+                "en ORANGE RING langs kanten (cirklen beholder sin normale røde, blå eller grønne farve)",
+                "en fyldt ORANGE DISK i midten af én cirkel (cirklen beholder sin normale røde, blå eller grønne farve)",
+            ),
+            (
+                "en ORANGE RING langs kanten",
+                "en fyldt ORANGE DISK i midten af én cirkel",
+            ),
+            (
+                "一个圆圈的外圈会出现橙色圆环（圆圈本身仍保持正常的红、蓝或绿色）",
+                "一个圆圈的中央会出现橙色实心圆盘（圆圈本身仍保持正常的红、蓝或绿色）",
+            ),
+            ("an ORANGE RING", "a filled ORANGE DISK"),
+            ("ORANGE RING", "ORANGE DISK"),
+            ("橙色圆环", "橙色实心圆盘"),
+        )
+        for old, new in replacements:
+            text = text.replace(old, new)
+    if NONFOCAL_PM_STYLE == "center_x":
+        replacements = (
+            (
+                "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit)",
+                "a WHITE X will appear in the middle of the screen",
+            ),
+            (
+                "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border",
+                "a WHITE X will appear in the middle of the screen",
+            ),
+            (
+                "a circle had a DASHED WHITE OUTLINE",
+                "a WHITE X appeared in the middle of the screen",
+            ),
+            (
+                "one circle will have a DASHED WHITE OUTLINE",
+                "a WHITE X will appear in the middle of the screen",
+            ),
+            (
+                "一个圆圈会出现虚线白色边框，而不是正常的实线边框（圆圈仍保持正常的颜色和奖励数字）",
+                "屏幕中央会出现一个白色X",
+            ),
+            (
+                "får én af cirklerne en STIPLET HVID KANT i stedet for den normale, ubrudte kant (cirklen beholder sin normale farve og sit belønningsciffer)",
+                "vises et HVIDT X i midten af skærmen",
+            ),
+            ("a DASHED WHITE OUTLINE", "a WHITE X IN THE MIDDLE OF THE SCREEN"),
+            ("DASHED WHITE OUTLINE", "WHITE X IN THE MIDDLE OF THE SCREEN"),
+            ("虚线白色边框", "屏幕中央的白色X"),
+            ("en STIPLET HVID KANT", "et HVIDT X I MIDTEN AF SKÆRMEN"),
+            ("STIPLET HVID KANT", "HVIDT X I MIDTEN AF SKÆRMEN"),
+        )
+        for old, new in replacements:
+            text = text.replace(old, new)
+    return text
+
+
 def _load_instruction(filename: str, **fmt) -> str:
     path = INSTRUCTION_DIR / filename
     if not path.exists():
@@ -1943,7 +2119,7 @@ def _load_instruction(filename: str, **fmt) -> str:
     text = path.read_text(encoding="utf-8").strip()
     if fmt:
         text = text.format(**fmt)
-    return text
+    return _apply_pm_cue_style_wording(text)
 
 
 def _load_session1_instruction(language: str = "en") -> str:
@@ -2279,6 +2455,7 @@ if not session_dlg.OK:
     core.quit()
 
 PARTICIPANT = str(session_dlg.data[0]).strip()
+_apply_test_pm_frequency(PARTICIPANT)
 if PARTICIPANT not in PARTICIPANT_CHOICES:
     raise SystemExit(
         f"Participant must be 'test' or an integer from 1 to {MAX_PARTICIPANT_ID}."
@@ -2372,6 +2549,13 @@ PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 if REPEAT_REASON:
     _SESSION_START_LOG_EXTRAS.append(f"  Repeated run reason: {REPEAT_REASON}")
 _SESSION_START_LOG_EXTRAS.append(f"  Output files: {DATA_FILE_STEM}_trials.csv, {DATA_FILE_STEM}_metadata.json")
+_SESSION_START_LOG_EXTRAS.append(f"  Focal PM style: {FOCAL_PM_STYLE}")
+_SESSION_START_LOG_EXTRAS.append(f"  Nonfocal PM style: {NONFOCAL_PM_STYLE}")
+if PARTICIPANT == "test":
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Test participant PM frequency: {PM_TRIALS_PER_CUE_PER_BLOCK} PM trials per cue per block "
+        f"({PM_TRIALS_PER_BLOCK} PM / {TRIALS_PER_BLOCK} trials)"
+    )
 
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
@@ -2656,6 +2840,18 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
         ).draw()
         return
 
+    if style == "center_disk":
+        visual.Circle(
+            win,
+            radius=FOCAL_PM_CENTER_DISK_RADIUS,
+            pos=pos,
+            fillColor=orange,
+            lineColor=None,
+            colorSpace=COLOR_SPACE,
+            edges=64,
+        ).draw()
+        return
+
     if style == "center_ring":
         visual.Circle(
             win,
@@ -2717,6 +2913,24 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
         return
 
     raise ValueError(f"Unknown focal PM style: {style}")
+
+
+def draw_nonfocal_center_x(win, pos=SCREEN_CENTER_POSITION):
+    """Draw a white X at screen center (nonfocal PM cue)."""
+    half = NONFOCAL_PM_X_HALF_SIZE_DEG
+    x0, y0 = pos
+    for start, end in (
+        ((x0 - half, y0 - half), (x0 + half, y0 + half)),
+        ((x0 - half, y0 + half), (x0 + half, y0 - half)),
+    ):
+        visual.Line(
+            win,
+            start=start,
+            end=end,
+            lineColor=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            lineWidth=NONFOCAL_PM_X_LINE_WIDTH,
+        ).draw()
 
 
 def _confirm_exit_or_continue():
@@ -3332,6 +3546,7 @@ def _build_survey_row(
         "PMIntrusion": 0,
         "PMReward": 0,
         "FocalPMStyle": "",
+        "NonfocalPMStyle": "",
         "CueTime": 0,
         "PointTargetTime": 0,
         "ColorTargetTime": 0,
@@ -3630,20 +3845,22 @@ for trial in trials:
             and trial["pm_trial_kind"] == "focal"
             and position_name == trial["pm_position"]
         )
-        is_nonfocal_pm_target = (
+        focal_pm_style = trial.get("focal_pm_style", FOCAL_PM_STYLE)
+        nonfocal_pm_style = trial.get("nonfocal_pm_style", NONFOCAL_PM_STYLE)
+        is_nonfocal_dashed_target = (
             trial["is_pm_trial"]
             and trial["pm_trial_kind"] == "nonfocal"
+            and nonfocal_pm_style == "dashed_outline"
             and position_name == trial["pm_position"]
         )
-        focal_pm_style = trial.get("focal_pm_style", FOCAL_PM_STYLE)
 
         outer_circle = visual.Circle(
             win,
             radius=CIRCLE_RADIUS,
             pos=pos,
             fillColor=COLORS[normal_color],
-            lineColor=None if is_nonfocal_pm_target else COLORS["white"],
-            lineWidth=0 if is_nonfocal_pm_target else BORDER_LINE_WIDTH,
+            lineColor=None if is_nonfocal_dashed_target else COLORS["white"],
+            lineWidth=0 if is_nonfocal_dashed_target else BORDER_LINE_WIDTH,
             colorSpace=COLOR_SPACE,
             edges=CIRCLE_EDGES,
         )
@@ -3671,13 +3888,13 @@ for trial in trials:
         inner_circle.draw()
         if is_focal_pm_target and focal_pm_style == "marker_bg":
             draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
-        elif is_focal_pm_target and focal_pm_style in ("inner_dot", "small_patch"):
+        elif is_focal_pm_target and focal_pm_style in ("inner_dot", "small_patch", "center_disk"):
             draw_focal_pm_marker(win, pos, focal_pm_style, reward_value)
             reward_text.draw()
         else:
             reward_text.draw()
 
-        if is_nonfocal_pm_target:
+        if is_nonfocal_dashed_target:
             for dash_start in range(0, 360, 24):
                 angle1 = math.radians(dash_start)
                 angle2 = math.radians(dash_start + 12)
@@ -3693,6 +3910,13 @@ for trial in trials:
                     colorSpace=COLOR_SPACE,
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
+
+    if (
+        trial["is_pm_trial"]
+        and trial["pm_trial_kind"] == "nonfocal"
+        and trial.get("nonfocal_pm_style", NONFOCAL_PM_STYLE) == "center_x"
+    ):
+        draw_nonfocal_center_x(win)
 
     show_keymap = (
         bool(trial.get("burn_in_block"))
