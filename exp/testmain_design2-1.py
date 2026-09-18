@@ -57,7 +57,8 @@ DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Focal PM cue: "center_ring" (original orange ring) or "center_disk" (filled orange disk in the circle center).
 FOCAL_PM_STYLE = "center_disk"
-# Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x" (white X at screen center).
+# Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x"
+# (filler inner circle on every disk; the PM target replaces that filler with a cross).
 NONFOCAL_PM_STYLE = "center_x"
 # Dialog participant "test" only: PM trials per cue per block. Real experiment uses 1
 # (6 PM / 44). 3 gives 18 PM + 26 ongoing, still balanced across 6 cue conditions.
@@ -882,10 +883,12 @@ FOCAL_PM_HALO_RADIUS = CUE_OUTER_RADIUS_DEG * 1.08
 FOCAL_PM_HALO_LINE_WIDTH = 7
 FOCAL_PM_MARKER_BG_RADIUS = CUE_INNER_RADIUS_DEG * 0.72
 FOCAL_PM_CENTER_DISK_RADIUS = CUE_INNER_RADIUS_DEG * 0.62
-NONFOCAL_PM_X_HALF_SIZE_DEG = 12 * STIM_FACTOR
-NONFOCAL_PM_X_LINE_WIDTH = 7
-SCREEN_CENTER_POSITION = (0.0, 0.0)
-SCREEN_CENTER_POSITION_NAME = "screen_center"
+# Inner filler O / PM cross sit in the white inner disk, below the reward digit.
+INNER_FILLER_RADIUS_DEG = CUE_INNER_RADIUS_DEG * 0.32
+INNER_FILLER_LINE_WIDTH = 4
+INNER_FILLER_CROSS_HALF_DEG = INNER_FILLER_RADIUS_DEG
+INNER_FILLER_Y_OFFSET_DEG = -0.40 * CUE_INNER_RADIUS_DEG
+INNER_FILLER_NUMBER_Y_OFFSET_DEG = 0.22 * CUE_INNER_RADIUS_DEG
 
 BORDER_LINE_WIDTH = 4
 DASHED_OUTLINE_LINE_WIDTH = 5
@@ -976,14 +979,12 @@ POSITION_NAME_TO_ID = {
     "bottom_left": 2,
     "bottom_right": 3,
     "center": 0,
-    "screen_center": 4,
 }
 POSITION_ID_TO_LABEL = {
     1: "top",
     2: "bottom_left",
     3: "bottom_right",
     0: "center",
-    4: "screen_center",
 }
 
 
@@ -1226,7 +1227,7 @@ DAT_COLUMN_DESCRIPTIONS = {
     "CumReward": "Cumulative monetary-style score (points x REWARD_MONEY_FACTOR), running total.",
     "PMTrial": "1 if this trial includes a prospective-memory cue; 0 otherwise.",
     "PMKind": "focal, nonfocal, or empty.",
-    "PMPosition": "Stimulus location name of the PM cue (top, bottom_left, bottom_right, center, screen_center).",
+    "PMPosition": "Stimulus location name of the PM cue (top, bottom_left, bottom_right, center).",
     "PMPositionId": "Numeric location id of the PM cue; 0 for center-only layout or none.",
     "PMKey": "Key assigned to PM responses.",
     "PMResponse": "1 if participant pressed the PM key on this trial; 0 otherwise.",
@@ -1350,7 +1351,7 @@ def _build_metadata(
                     ],
                 }
                 for name, position_id in POSITION_NAME_TO_ID.items()
-                if name != "center"
+                if name in POSITIONS
             },
             "location_id_mapping_note": (
                 "Location ids are 1-based positions in Cues, CueValues, CueRanks, RespLoc, "
@@ -1745,11 +1746,13 @@ def _pm_trial_kind_for_phase(session_phase: str):
 
 
 def _pm_position_for_trial(rng: random.Random, pm_kind: str | None, pm_positions: list[str]) -> str | None:
-    if pm_kind == "nonfocal" and NONFOCAL_PM_STYLE == "center_x":
-        return SCREEN_CENTER_POSITION_NAME
     if not pm_positions:
         return None
     return rng.choice(pm_positions)
+
+
+def _uses_inner_filler_symbols() -> bool:
+    return NONFOCAL_PM_STYLE == "center_x"
 
 
 def _pm_style_fields(pm_kind: str | None) -> dict:
@@ -2079,36 +2082,60 @@ def _apply_pm_cue_style_wording(text: str) -> str:
         replacements = (
             (
                 "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border (the circle keeps its normal color and reward digit)",
-                "a WHITE X will appear in the middle of the screen",
+                "the small circle in the middle of one colored circle will be replaced by a CROSS (the circle keeps its normal color and reward digit)",
             ),
             (
                 "one circle will have a DASHED WHITE OUTLINE instead of the normal solid border",
-                "a WHITE X will appear in the middle of the screen",
+                "the small circle in the middle of one colored circle will be replaced by a CROSS",
             ),
             (
                 "a circle had a DASHED WHITE OUTLINE",
-                "a WHITE X appeared in the middle of the screen",
+                "a circle had a CROSS instead of its small inner circle",
             ),
             (
                 "one circle will have a DASHED WHITE OUTLINE",
-                "a WHITE X will appear in the middle of the screen",
+                "the small circle in the middle of one colored circle will be replaced by a CROSS",
             ),
             (
                 "一个圆圈会出现虚线白色边框，而不是正常的实线边框（圆圈仍保持正常的颜色和奖励数字）",
-                "屏幕中央会出现一个白色X",
+                "一个圆圈中央的小圆会被换成十字（圆圈仍保持正常的颜色和奖励数字）",
             ),
             (
                 "får én af cirklerne en STIPLET HVID KANT i stedet for den normale, ubrudte kant (cirklen beholder sin normale farve og sit belønningsciffer)",
-                "vises et HVIDT X i midten af skærmen",
+                "bliver den lille cirkel i midten af én farvecirkel erstattet af et KORS (cirklen beholder sin normale farve og sit belønningsciffer)",
             ),
-            ("a DASHED WHITE OUTLINE", "a WHITE X IN THE MIDDLE OF THE SCREEN"),
-            ("DASHED WHITE OUTLINE", "WHITE X IN THE MIDDLE OF THE SCREEN"),
-            ("虚线白色边框", "屏幕中央的白色X"),
-            ("en STIPLET HVID KANT", "et HVIDT X I MIDTEN AF SKÆRMEN"),
-            ("STIPLET HVID KANT", "HVIDT X I MIDTEN AF SKÆRMEN"),
+            ("a DASHED WHITE OUTLINE", "a CROSS"),
+            ("DASHED WHITE OUTLINE", "CROSS"),
+            ("虚线白色边框", "十字"),
+            ("en STIPLET HVID KANT", "et KORS"),
+            ("STIPLET HVID KANT", "KORS"),
         )
         for old, new in replacements:
             text = text.replace(old, new)
+        text = _maybe_add_inner_filler_instruction_note(text)
+    return text
+
+
+def _maybe_add_inner_filler_instruction_note(text: str) -> str:
+    """Remind participants that the inner circle is a filler, except on PM screens."""
+    if "CROSS" in text or "十字" in text or "KORS" in text:
+        return text
+    if "small circle in the middle" in text or "小圆" in text or "lille cirkel i midten" in text:
+        return text
+    if "zh" in text[:20] or "圆圈" in text or "按 *space*" in text:
+        note = "每个彩色圆圈中央都有一个小圆。请忽略这个小圆。\n\n"
+        marker = "按 *space*"
+    elif "Tryk på *space*" in text or "cirklen med den højeste" in text:
+        note = "Hver farvet cirkel har en lille cirkel i midten. Ignorer den indre cirkel.\n\n"
+        marker = "Tryk på *space*"
+    else:
+        note = (
+            "Each colored circle has a small circle in the middle. "
+            "Ignore that inner circle.\n\n"
+        )
+        marker = "Press *space*"
+    if marker in text:
+        return text.replace(marker, note + marker, 1)
     return text
 
 
@@ -2915,21 +2942,39 @@ def draw_focal_pm_marker(win, pos, style, reward_value):
     raise ValueError(f"Unknown focal PM style: {style}")
 
 
-def draw_nonfocal_center_x(win, pos=SCREEN_CENTER_POSITION):
-    """Draw a white X at screen center (nonfocal PM cue)."""
-    half = NONFOCAL_PM_X_HALF_SIZE_DEG
-    x0, y0 = pos
+def _inner_filler_pos(circle_pos):
+    return (circle_pos[0], circle_pos[1] + INNER_FILLER_Y_OFFSET_DEG)
+
+
+def draw_inner_filler_circle(win, circle_pos):
+    """Baseline filler: small unfilled circle inside the white inner disk."""
+    visual.Circle(
+        win,
+        radius=INNER_FILLER_RADIUS_DEG,
+        pos=_inner_filler_pos(circle_pos),
+        fillColor=None,
+        lineColor=COLORS["black"],
+        colorSpace=COLOR_SPACE,
+        lineWidth=INNER_FILLER_LINE_WIDTH,
+        edges=64,
+    ).draw()
+
+
+def draw_inner_filler_cross(win, circle_pos):
+    """Nonfocal PM target: replace the filler circle with a cross."""
+    x0, y0 = _inner_filler_pos(circle_pos)
+    half = INNER_FILLER_CROSS_HALF_DEG
     for start, end in (
-        ((x0 - half, y0 - half), (x0 + half, y0 + half)),
-        ((x0 - half, y0 + half), (x0 + half, y0 - half)),
+        ((x0 - half, y0), (x0 + half, y0)),
+        ((x0, y0 - half), (x0, y0 + half)),
     ):
         visual.Line(
             win,
             start=start,
             end=end,
-            lineColor=COLORS["white"],
+            lineColor=COLORS["black"],
             colorSpace=COLOR_SPACE,
-            lineWidth=NONFOCAL_PM_X_LINE_WIDTH,
+            lineWidth=INNER_FILLER_LINE_WIDTH,
         ).draw()
 
 
@@ -3853,6 +3898,16 @@ for trial in trials:
             and nonfocal_pm_style == "dashed_outline"
             and position_name == trial["pm_position"]
         )
+        is_nonfocal_cross_target = (
+            trial["is_pm_trial"]
+            and trial["pm_trial_kind"] == "nonfocal"
+            and nonfocal_pm_style == "center_x"
+            and position_name == trial["pm_position"]
+        )
+        show_inner_filler = _uses_inner_filler_symbols()
+        reward_pos = pos
+        if show_inner_filler:
+            reward_pos = (pos[0], pos[1] + INNER_FILLER_NUMBER_Y_OFFSET_DEG)
 
         outer_circle = visual.Circle(
             win,
@@ -3876,7 +3931,7 @@ for trial in trials:
         reward_text = visual.TextStim(
             win,
             text=str(reward_value) if reward_value > 0 else "",
-            pos=pos,
+            pos=reward_pos,
             color=COLORS["black"],
             colorSpace=COLOR_SPACE,
             height=REWARD_TEXT_HEIGHT,
@@ -3911,12 +3966,11 @@ for trial in trials:
                     lineWidth=DASHED_OUTLINE_LINE_WIDTH,
                 ).draw()
 
-    if (
-        trial["is_pm_trial"]
-        and trial["pm_trial_kind"] == "nonfocal"
-        and trial.get("nonfocal_pm_style", NONFOCAL_PM_STYLE) == "center_x"
-    ):
-        draw_nonfocal_center_x(win)
+        if show_inner_filler:
+            if is_nonfocal_cross_target:
+                draw_inner_filler_cross(win, pos)
+            else:
+                draw_inner_filler_circle(win, pos)
 
     show_keymap = (
         bool(trial.get("burn_in_block"))
