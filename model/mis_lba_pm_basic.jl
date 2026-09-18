@@ -16,15 +16,19 @@ sv = 1.0   # LBA drift noise; fixed as a scale (same idea as Strickland)
 # If false, location drifts ignore PM, and PM has its own drift.
 share_pm_capacity = true
 
-# C is MIS total capacity. Strickland has no C; MIS uses one shared C.
-# true -> separate C_ongoing and C_pm (and/or by phase if that flag is on).
+# C is MIS total capacity. Strickland has no C (he lets mean drift v change
+# by PM block instead). Keep C shared unless you want a MIS-style capacity shift.
 vary_C_by_accumulator = false
 vary_C_by_phase = false          # baseline / focal / nonfocal
 
 # k is the LBA threshold gap: b = A + k.
-# Strickland lets threshold differ for ongoing vs PM. Default follows that.
+# Strickland: B varies by accumulator AND by PM block (control / focal / nonfocal).
 vary_k_by_accumulator = true
-vary_k_by_phase = false
+vary_k_by_phase = true
+
+# Strickland: PM mean drift v_PM differs for focal vs nonfocal, and for
+# PM-present vs PM-absent trials. That is these two PM weights.
+vary_pm_weight_by_phase = true
 
 # =============================================================================
 # Small helpers used below
@@ -317,11 +321,16 @@ push!(lower, 0.0); push!(upper, 30.0); push!(x0, 1.0)
 push!(param_names, "omega0")
 push!(lower, 1e-6); push!(upper, 50.0); push!(x0, 0.1)
 
-push!(param_names, "omega_pm_absent")
-push!(lower, 1e-6); push!(upper, 50.0); push!(x0, 0.05)
-
-push!(param_names, "omega_pm_present")
-push!(lower, 1e-6); push!(upper, 50.0); push!(x0, 2.0)
+idx_omega_pm = Dict{Symbol, Int}()
+omega_pm_key_list = vary_pm_weight_by_phase ?
+    [:absent_focal, :absent_nonfocal, :present_focal, :present_nonfocal] :
+    [:absent, :present]
+for key in omega_pm_key_list
+    push!(param_names, "omega_pm_$(key)")
+    push!(lower, 1e-6); push!(upper, 50.0)
+    push!(x0, startswith(string(key), "present") ? 2.0 : 0.05)
+    idx_omega_pm[key] = length(param_names)
+end
 
 idx_C = Dict{Symbol, Int}()
 for key in param_keys(vary_C_by_accumulator, vary_C_by_phase)
@@ -361,8 +370,10 @@ function k_pair(x, ph)
     return k_ong, k_pm
 end
 
-function trial_omega_pm(x, pm_trial)
-    return pm_trial ? x[4] : x[3]
+function trial_omega_pm(x, pm_trial, ph)
+    kind = pm_trial ? :present : :absent
+    key = vary_pm_weight_by_phase ? Symbol(kind, "_", ph) : kind
+    return x[idx_omega_pm[key]]
 end
 
 function neg_loglik(x)
@@ -379,7 +390,7 @@ function neg_loglik(x)
         k_ong, k_pm = k_pair(x, phase[i])
         C_vec = trial_C_vec(C_ong, C_pm, n_acc)
         k_vec = trial_k_vec(k_ong, k_pm, n_acc)
-        omega_pm = trial_omega_pm(x, is_pm_trial[i])
+        omega_pm = n_acc == 4 ? trial_omega_pm(x, is_pm_trial[i], phase[i]) : 0.0
         v = trial_drifts(trial_rewards[i], theta, omega0, omega_pm, C_vec, share_pm_capacity, r_max)
         lik = lba_race_pdf(rt_sec[i], choice[i], v, A, k_vec, t0, sv)
         nll -= log(max(lik, eps_val))
@@ -415,8 +426,6 @@ end
 best = Optim.minimizer(best_fit)
 theta_hat = best[1]
 omega0_hat = best[2]
-omega_pm_absent_hat = best[3]
-omega_pm_present_hat = best[4]
 A_hat = best[idx_A]
 t0_hat = best[idx_t0]
 
@@ -425,6 +434,7 @@ println("Trials used: ", nrow(data))
 println("share_pm_capacity: ", share_pm_capacity)
 println("vary_C_by_accumulator: ", vary_C_by_accumulator, "  vary_C_by_phase: ", vary_C_by_phase)
 println("vary_k_by_accumulator: ", vary_k_by_accumulator, "  vary_k_by_phase: ", vary_k_by_phase)
+println("vary_pm_weight_by_phase: ", vary_pm_weight_by_phase)
 for (name, val) in zip(param_names, best)
     println(name, "_hat: ", round(val; digits=6))
 end
@@ -446,7 +456,7 @@ function trial_lba(i, x)
     k_ong, k_pm = k_pair(x, phase[i])
     C_vec = trial_C_vec(C_ong, C_pm, n_acc)
     k_vec = trial_k_vec(k_ong, k_pm, n_acc)
-    omega_pm = trial_omega_pm(x, is_pm_trial[i])
+    omega_pm = n_acc == 4 ? trial_omega_pm(x, is_pm_trial[i], phase[i]) : 0.0
     v = trial_drifts(trial_rewards[i], x[1], x[2], omega_pm, C_vec, share_pm_capacity, r_max)
     return v, x[idx_A], k_vec, x[idx_t0]
 end
@@ -627,6 +637,7 @@ flag_line = join([
     "vary_C_by_phase=$(vary_C_by_phase)",
     "vary_k_by_accumulator=$(vary_k_by_accumulator)",
     "vary_k_by_phase=$(vary_k_by_phase)",
+    "vary_pm_weight_by_phase=$(vary_pm_weight_by_phase)",
 ], "   ")
 param_line = join(["$(name)=$(round(val; digits=3))" for (name, val) in zip(param_names, best)], "   ")
 pmhit_line = "PM hit  focal data/pred=$(round(data_pmhit[:focal]; digits=3))/$(round(pred_pmhit[:focal]; digits=3))   nonfocal data/pred=$(round(data_pmhit[:nonfocal]; digits=3))/$(round(pred_pmhit[:nonfocal]; digits=3))"
