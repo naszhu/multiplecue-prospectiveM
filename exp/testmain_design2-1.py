@@ -3709,25 +3709,11 @@ def draw_pm_instruction_examples(pm_kind: str):
         ).draw()
 
 
-# Nudge the instruction block away from the top-left example pair.
-_EXAMPLE_INSTRUCTION_POS_SHIFT_DEG = (2.4, -2.4)
-
-
 def _flip_instruction_frame(*, draw_pm_example: bool = False, pm_example_kind: str | None = None):
-    old_pos = (float(instructions.pos[0]), float(instructions.pos[1]))
-    show_example = draw_pm_example and pm_example_kind in ("focal", "nonfocal")
-    if show_example:
-        instructions.pos = (
-            old_pos[0] + _EXAMPLE_INSTRUCTION_POS_SHIFT_DEG[0],
-            old_pos[1] + _EXAMPLE_INSTRUCTION_POS_SHIFT_DEG[1],
-        )
-    try:
-        instructions.draw()
-        if show_example:
-            draw_pm_instruction_examples(pm_example_kind)
-        win.flip()
-    finally:
-        instructions.pos = old_pos
+    instructions.draw()
+    if draw_pm_example and pm_example_kind in ("focal", "nonfocal"):
+        draw_pm_instruction_examples(pm_example_kind)
+    win.flip()
 
 
 def _confirm_exit_or_continue():
