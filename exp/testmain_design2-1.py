@@ -17,6 +17,11 @@ from datetime import datetime
 from itertools import permutations
 from pathlib import Path
 
+try:
+    import termios
+except ImportError:  # Not available on Windows.
+    termios = None
+
 from psychopy import gui, visual, core, event, monitors
 
 try:
@@ -841,9 +846,14 @@ def _find_self_made_response_box_port() -> str:
 
 
 def _srb_serial_errors():
+    """Exceptions raised by pyserial and its Linux termios backend."""
     errors: tuple[type[BaseException], ...] = (OSError,)
     if serial is not None:
         errors = errors + (serial.SerialException,)
+    # pyserial 3.5 can let termios.error escape from tcflush/tcdrain on Linux.
+    # Despite carrying an errno, termios.error is not an OSError subclass.
+    if termios is not None:
+        errors = errors + (termios.error,)
     return errors
 
 
@@ -867,12 +877,14 @@ def _srb_open(port_name: str | None = None) -> tuple[object | None, str | None, 
     for candidate in ports:
         if not candidate:
             continue
+        box = None
         try:
             box = serial.Serial(candidate, baudrate=SELF_MADE_BAUDRATE, timeout=0.001)
             time.sleep(2.0)
             box.reset_input_buffer()
             return box, candidate, None
         except _srb_serial_errors() as exc:
+            _srb_close(box)
             last_error = f"{candidate}: {type(exc).__name__}: {exc}"
     return None, None, last_error
 
@@ -945,6 +957,7 @@ def _srb_prepare_trial(
                 f"{type(retry_exc).__name__}: {retry_exc}"
             )
             _srb_log_warning(log_path, retry_note)
+            _srb_close(new_box)
             return None, None, 0, " | ".join(p for p in [note, retry_note] if p)
 
 
@@ -976,7 +989,15 @@ def _wait_for_self_made_response_box(box, clock, max_wait, log_path, trial_numbe
 
             pin, latency_us = parts
             if pin in SELF_MADE_PIN_TO_KEY:
-                return (pin, clock.getTime(), float(latency_us) / 1000), ""
+                try:
+                    device_rt_ms = float(latency_us) / 1000
+                except ValueError:
+                    _srb_log_warning(
+                        log_path,
+                        f"SRB malformed response trial {trial_number}: {line!r}",
+                    )
+                    continue
+                return (pin, clock.getTime(), device_rt_ms), ""
 
     return None, ""
 
@@ -989,6 +1010,7 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
     """
     if serial is None:
         return None, None
+    box = None
     try:
         box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.5)
         time.sleep(2.0)
@@ -996,7 +1018,6 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
         box.write(b"I")
         box.flush()
         reply = box.readline().decode("ascii", errors="ignore").strip()
-        box.close()
         if not reply:
             return None, None
         parts = reply.split(",")
@@ -1007,6 +1028,8 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
         return device_name, firmware_version
     except Exception:
         return None, None
+    finally:
+        _srb_close(box)
 
 
 def _auto_detect_srb_device() -> tuple[str | None, str | None, str | None, str | None]:
