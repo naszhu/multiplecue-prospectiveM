@@ -1,0 +1,31 @@
+ØVELSE 1
+
+I det følgende vil du se et fixationskors i midten af skærmen. Fixér altid dette punkt, når du starter en forsøgsrunde.
+
+Når du trykker på *space*, vil en farvet cirkel med et tal fra 1 til 3 dukke op i midten af skærmen.
+
+__________
+
+Din opgave er at angive cirkelens farve ved at trykke på en af tre taster på response boxen.
+
+Placer din højre hånd på højre halvdel af response boxen, med alle fem fingre hvilende let på tasterne. Hold højre hånd i denne position gennem hele sessionen — løft eller flyt ikke fingrene fra tasterne.
+
+Du vil svare med tre fingre på højre hånd: pegefingeren, langfingeren og ringfingeren.
+
+Farverne for pegefingeren, langfingeren og ringfingeren er {C_INDEX}, {C_MIDDLE} og {C_RING}. Denne farve-finger-tilknytning forbliver den samme gennem hele eksperimentet. Tilknytningen vises også ved de farvede firkanter under cirklen.
+
+Placer også din venstre hånd på venstre halvdel af response boxen, med alle fem fingre hvilende let på tasterne. Hold venstre hånd i denne position — løft eller flyt ikke fingrene fra tasterne.
+
+__________
+
+Du optjener point ved korrekt at angive cirkelens farve og ved at reagere så hurtigt som muligt.
+
+Tallet 1 giver 1 point, og så videre op til maksimalt 3 point pr. forsøgsrunde.
+
+Dine point omsættes til en pengebelønning (0,05 DKK pr. point). Efter hver forsøgsrunde ser du, hvor mange point du har optjent i den pågældende runde i forhold til det mulige, sammen med beløbet i DKK.
+
+__________
+
+Husk at fixere korset i midten ved starten af hver forsøgsrunde.
+
+Tryk på *space* for at begynde.

@@ -1,0 +1,15 @@
+EXPERIMENTAL SESSION — BASELINE
+
+The task is the same as in the final practice session.
+
+Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward by pressing the key for its color:
+
+{COLOR_KEY_LINE}
+
+There is no prospective memory task in this session. Respond only with the color keys.
+
+Try to collect as many points as possible.
+
+__________
+
+Press *space* to begin.

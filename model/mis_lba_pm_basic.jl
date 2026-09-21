@@ -79,6 +79,50 @@ function lookup_key(vary_acc, vary_phase, acc, phase)
     end
 end
 
+function scope_tag(vary_acc, vary_phase, name)
+    vary_acc && vary_phase && return "$(name)-acc-phase"
+    vary_acc && return "$(name)-acc"
+    vary_phase && return "$(name)-phase"
+    return "$(name)-shared"
+end
+
+# Filename tag like RTfit: sharePM__C-shared__k-acc-phase__wPM-phase
+function model_tag()
+    pm_part = share_pm_capacity ? "sharePM" : "indepPM"
+    w_part = vary_pm_weight_by_phase ? "wPM-phase" : "wPM-shared"
+    return join([
+        pm_part,
+        scope_tag(vary_C_by_accumulator, vary_C_by_phase, "C"),
+        scope_tag(vary_k_by_accumulator, vary_k_by_phase, "k"),
+        w_part,
+    ], "__")
+end
+
+function wrap_join(items; sep="   ", width=140)
+    lines = String[]
+    cur = ""
+    for item in items
+        trial = isempty(cur) ? item : cur * sep * item
+        if length(trial) > width && !isempty(cur)
+            push!(lines, cur)
+            cur = item
+        else
+            cur = trial
+        end
+    end
+    isempty(cur) || push!(lines, cur)
+    return join(lines, "\n")
+end
+
+function text_banner(title_text)
+    p = plot(
+        xlims=(0, 1), ylims=(0, 1);
+        axis=false, grid=false, legend=false, ticks=false, framestyle=:none,
+    )
+    annotate!(p, 0.0, 0.55, text(title_text, :left, 9))
+    return p
+end
+
 # =============================================================================
 # Custom LBA race (Brown & Heathcote, 2008)
 # Each accumulator can have its own threshold gap k.
@@ -631,29 +675,30 @@ for (ip, ph) in enumerate(phase_order)
     ))
 end
 
-flag_line = join([
+flag_items = [
     "share_pm_capacity=$(share_pm_capacity)",
     "vary_C_by_accumulator=$(vary_C_by_accumulator)",
     "vary_C_by_phase=$(vary_C_by_phase)",
     "vary_k_by_accumulator=$(vary_k_by_accumulator)",
     "vary_k_by_phase=$(vary_k_by_phase)",
     "vary_pm_weight_by_phase=$(vary_pm_weight_by_phase)",
-], "   ")
-param_line = join(["$(name)=$(round(val; digits=3))" for (name, val) in zip(param_names, best)], "   ")
+]
+param_items = ["$(name)=$(round(val; digits=3))" for (name, val) in zip(param_names, best)]
 pmhit_line = "PM hit  focal data/pred=$(round(data_pmhit[:focal]; digits=3))/$(round(pred_pmhit[:focal]; digits=3))   nonfocal data/pred=$(round(data_pmhit[:nonfocal]; digits=3))/$(round(pred_pmhit[:nonfocal]; digits=3))"
-title_text = "sub$(subject_id)  |  NLL=$(round(best_nll; digits=1))  |  $(pmhit_line)\n$(flag_line)\n$(param_line)"
+tag = model_tag()
+title_text = "sub$(subject_id)  |  $(tag)  |  NLL=$(round(best_nll; digits=1))  |  $(pmhit_line)\n" *
+    wrap_join(flag_items; width=140) * "\n" *
+    wrap_join(param_items; width=140)
 
+banner = text_banner(title_text)
 fig = plot(
-    panels...;
-    layout=(4, 3),
-    size=(1800, 1250),
-    plot_title=title_text,
-    plot_titlefontsize=10,
-    top_margin=12Plots.mm,
+    banner, panels...;
+    layout=@layout([a{0.13h}; grid(4, 3)]),
+    size=(1800, 1400),
 )
 fig_dir = joinpath(@__DIR__, "figs")
 isdir(fig_dir) || mkdir(fig_dir)
-fig_path = joinpath(fig_dir, "mis_lba_pm_basic_sub$(subject_id).png")
+fig_path = joinpath(fig_dir, "sub$(subject_id)_$(tag).png")
 savefig(fig, fig_path)
 println("Saved plot: ", fig_path)
 
@@ -701,13 +746,12 @@ p_over_q90 = overlay_panel(
 )
 
 fig_over = plot(
+    text_banner("sub$(subject_id)  |  $(tag)  |  overlay  |  dashed=observed  solid=predicted\n" *
+        wrap_join(param_items; width=140)),
     p_over_acc, p_over_q10, p_over_q50, p_over_q90;
-    layout=@layout([a{0.42w} [b; c; d]]),
-    size=(1500, 900),
-    plot_title="sub$(subject_id)  |  phase overlay  |  dashed=observed  solid=predicted\n$(param_line)",
-    plot_titlefontsize=10,
-    top_margin=10Plots.mm,
+    layout=@layout([a{0.16h}; [b{0.42w} [c; d; e]]]),
+    size=(1500, 1050),
 )
-fig_over_path = joinpath(fig_dir, "mis_lba_pm_basic_sub$(subject_id)_phase_overlay.png")
+fig_over_path = joinpath(fig_dir, "sub$(subject_id)_$(tag)_overlay.png")
 savefig(fig_over, fig_over_path)
 println("Saved plot: ", fig_over_path)

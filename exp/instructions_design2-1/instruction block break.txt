@@ -1,0 +1,6 @@
+End of Block {prev_block}.
+
+Next: Block {next_block} of {n_blocks}.
+
+Feeling tired? You are welcome to take a break for as long as you need.
+Rest until you feel ready to continue, then press SPACE.

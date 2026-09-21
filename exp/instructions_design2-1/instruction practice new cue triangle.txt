@@ -1,0 +1,26 @@
+PRACTICE BLOCK
+
+In the previous part, the special task was to respond when a circle showed an ORANGE BAND in the middle of one circle. In this new part, the special task is different.
+
+You will first practice this in a short block before the main part of today's session.
+
+SPECIAL TASK: On some trials, the small circle below the reward digit in one circle will be replaced by a TRIANGLE (the circle keeps its normal color and reward digit). When you see a TRIANGLE, press C with your LEFT MIDDLE FINGER instead of the color key.
+
+ONGOING TASK (same as before): Choose the circle with the highest reward digit using:
+
+{COLOR_KEY_LINE}
+
+During this practice block, the color-key mapping will NOT be shown on the screen. Use what you have learned.
+
+When this practice block ends, you will see the full instructions before the main blocks begin.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the new special task: when you see a TRIANGLE, press C with your LEFT MIDDLE FINGER instead of a color key.
+
+__________
+
+
+See the example below: left = a normal trial; right = a special-task trial.
+
+Press *space* to begin the practice block.

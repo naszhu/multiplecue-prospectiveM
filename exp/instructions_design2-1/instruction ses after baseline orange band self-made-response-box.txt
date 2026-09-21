@@ -1,0 +1,27 @@
+You have completed the previous part of the experiment. A new part is beginning, and the task will be somewhat different.
+
+SPECIAL TASK: In addition to choosing the circle with the highest reward digit, you sometimes need to do another task.
+
+Keep your left hand on the left half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys. When a special-task trial appears, respond using only your LEFT INDEX FINGER.
+
+On some trials, one circle will show an ORANGE BAND between its outer color and white center (outer color and white center stay the same). When you see an ORANGE BAND, press the key under your LEFT INDEX FINGER instead of a right-hand color key. Responding correctly earns 5 bonus points.
+
+__________
+
+ONGOING TASK (same as before):
+
+Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
+
+Three colored circles may appear with one or two reward digits. Choose the circle with the highest reward using your right index, middle, and ring fingers:
+
+{COLOR_FINGER_LINE}
+
+The color-key mapping is not shown on the screen during the experiment.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the special task above: when you see an ORANGE BAND, press the key under your LEFT INDEX FINGER instead of a right-hand color key.
+
+__________
+
+Press *space* to begin.

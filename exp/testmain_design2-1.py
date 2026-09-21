@@ -1,11 +1,9 @@
 """
 PsychoPy version of the multiple-cue prospective memory experiment (v3).
 
-Copy of testmain_demo.py with configurable focal/nonfocal PM cue styles and a
-higher PM-trial rate when the dialog participant is "test".
-
-Full session structure: 26 sessions (5 practice + 7 baseline + 7 focal PM + 7 nonfocal PM).
-Trial design is fully pre-assigned before the experiment starts (no randomization in the trial loop).
+Four-day design (26 sessions): Day 1 practice + one of each phase; Days 2–4
+keep 2 consecutive sessions of each phase (6 block orders of {BB, FF, NN} from CSV).
+Trial design is fully pre-assigned before the experiment starts.
 Supports keyboard or self-made serial response box.
 """
 
@@ -50,6 +48,13 @@ COLOR_MAP_LAYOUT_CHOICES = ["njk"]
 #   3 PM × 6 cues = 18 PM, leaving 42−18 = 24 ongoing (exactly 4 ongoing per cue).
 
 ############################# TO MODIFY BELOW
+# Session map (4-day design; phase order for ses 7–8 and 9–26 from session_phase_schedule.csv):
+#   Day 1  ses 1–5  practice
+#   Day 1  ses 6    baseline (always)
+#   Day 1  ses 7–8  focal_pm / nonfocal_pm once each (odd: focal then nonfocal; even: reverse)
+#   Day 2  ses 9–14   2 consecutive of each phase; one of 6 orders of {BB, FF, NN} from CSV
+#   Day 3  ses 15–20  same (different block order from CSV)
+#   Day 4  ses 21–26  same (different block order from CSV)
 DEBUG_CONFIG = {
     "enabled": False,
     "trial_duration": 0.001,  # Fixation / stimulus / response / feedback / ITI when auto_advance_trials.
@@ -130,7 +135,8 @@ SPECIAL_SESSION_NOTE = ""
 SKIP_COLOR_VISION_TEST = False
 ISHIHARA_RESULT: dict | None = None
 
-INSTRUCTION_DIR = EXP_DIR / "Instructions"
+INSTRUCTION_DIR = EXP_DIR / "instructions_design2-1"
+SESSION_PHASE_SCHEDULE_PATH = EXP_DIR / "session_phase_schedule.csv"
 ISHIHARA_DIR = ishihara.ISHIHARA_DIR
 ISHIHARA_PLATES_JSON = ishihara.ISHIHARA_PLATES_JSON
 ISHIHARA_FAIL_ERRORS = ishihara.ISHIHARA_FAIL_ERRORS
@@ -158,10 +164,10 @@ MIN_RT_MS = 100  # Responses faster than this are treated as accidental button-h
 REWARD_MONEY_FACTOR = 0.05
 STIMULUS_OPACITY = 1.0
 
-# Session / phase design (see design.md)
+# Session / phase design (4-day blocked-phase schedule; see session_phase_schedule.csv)
 N_PRACTICE_SESSIONS = 5
-N_BASELINE_SESSIONS = 7
-N_PM_SESSIONS_PER_KIND = 7
+N_BASELINE_SESSIONS_TOTAL = 7  # 1 on day 1 + 2×3 on days 2–4
+N_PM_SESSIONS_PER_KIND_TOTAL = 7  # 1 on day 1 + 2×3 on days 2–4
 N_CUE_CONDITIONS = 6
 N_BLOCKS = 9
 # 42 = 6 cue conditions × 7: baseline gets exactly 7 ongoing per cue;
@@ -232,11 +238,11 @@ def _validate_pm_cue_styles() -> None:
 _validate_pm_cue_styles()
 _refresh_pm_trial_counts()
 
-MAX_SESSION = (
-    N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 2 * N_PM_SESSIONS_PER_KIND
-)
+MAX_SESSION = 26
 MAX_PARTICIPANT_ID = 100
 PARTICIPANT_CHOICES = ["test"] + [str(i) for i in range(1, MAX_PARTICIPANT_ID + 1)]
+END_OF_DAY_SESSIONS = frozenset({8, 14, 20, 26})
+DAY1_FIRST_PM_SESSIONS = (7, 8)  # first focal and first nonfocal of the experiment
 
 RESPONSE_DEADLINE = 2.0
 
@@ -246,9 +252,6 @@ OTHER_WARMUP_TRIALS = 0
 BURNIN_TRIALS_PER_BLOCK = 20
 BURNIN_BLOCK_NUMBER = 0
 PM_PRACTICE_BLOCK_NUMBER = -1
-# Session 13 = first PM session; session 20 = first session of second PM phase (5+7=12, +1=13, +7=20).
-FIRST_PM_SESSION = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS + 1
-FIRST_SECOND_PM_PHASE_SESSION = FIRST_PM_SESSION + N_PM_SESSIONS_PER_KIND
 INSTRUCTION_LETTER_SIZE_DEG = 0.6
 SESSION1_INSTRUCTION_LETTER_SIZE_DEG = 0.4  # Shorter height for long session-1 text (match CCRP)
 
@@ -1432,6 +1435,9 @@ def _build_metadata(
             "practice": "Y" if SESSION <= N_PRACTICE_SESSIONS else "N",
             "session": SESSION,
             "session_phase": SESSION_PHASE,
+            "design_day": participation_day_for_session(SESSION),
+            "end_of_day_session": "Y" if is_end_of_day_session(SESSION) else "N",
+            "session_phase_schedule_file": SESSION_PHASE_SCHEDULE_PATH.name,
             "session1_instruction_language": SESSION1_INSTRUCTION_LANGUAGE if SESSION == 1 else None,
             "number_of_blocks": n_blocks,
             "total_number_of_trials": n_trials_total,
@@ -1523,37 +1529,51 @@ def _participant_number(participant_id: str):
         return None
 
 
+def _load_session_phase_schedule() -> dict[str, dict[int, str]]:
+    """Load participant → {session_number: phase} from the committed CSV."""
+    path = SESSION_PHASE_SCHEDULE_PATH
+    if not path.is_file():
+        raise SystemExit(
+            f"Session phase schedule not found: {path}\n"
+            "Run exp/generate_session_phase_schedule.py to create it."
+        )
+    schedule: dict[str, dict[int, str]] = {}
+    with path.open(encoding="utf-8", newline="") as fp:
+        reader = csv.DictReader(fp)
+        for row in reader:
+            pid = str(row["participant_id"]).strip()
+            phases: dict[int, str] = {}
+            for ses in range(1, MAX_SESSION + 1):
+                key = f"ses{ses:02d}"
+                if key not in row or not str(row[key]).strip():
+                    raise SystemExit(f"Missing {key} for participant {pid!r} in {path}")
+                phases[ses] = str(row[key]).strip()
+            schedule[pid] = phases
+    return schedule
+
+
+PARTICIPANT_SESSION_PHASE_SCHEDULE = _load_session_phase_schedule()
+
+
 def session_phase_for(session: int, participant_id: str) -> str:
-    """Map 1-based session number to session_phase label."""
+    """Map 1-based session number to session_phase label via pre-planned CSV."""
     if session < 1 or session > MAX_SESSION:
         raise ValueError(f"Session must be between 1 and {MAX_SESSION}.")
-
-    if session <= N_PRACTICE_SESSIONS:
-        return "practice"
-
-    baseline_end = N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS
-    if session <= baseline_end:
-        return "baseline"
-
-    pm_first_end = baseline_end + N_PM_SESSIONS_PER_KIND
-    pm_second_end = pm_first_end + N_PM_SESSIONS_PER_KIND
-
-    participant_num = _participant_number(participant_id)
-    # Odd participant  → focal PM sessions first, then nonfocal PM sessions.
-    # Even participant → nonfocal PM sessions first, then focal PM sessions.
-    focal_first = participant_num is None or participant_num % 2 == 1
-
-    if session <= pm_first_end:
-        return "focal_pm" if focal_first else "nonfocal_pm"
-    if session <= pm_second_end:
-        return "nonfocal_pm" if focal_first else "focal_pm"
-
-    raise ValueError(f"Session {session} is out of range.")
+    pid = str(participant_id).strip()
+    if pid not in PARTICIPANT_SESSION_PHASE_SCHEDULE:
+        raise SystemExit(
+            f"Participant {pid!r} missing from {SESSION_PHASE_SCHEDULE_PATH.name}. "
+            "Re-run generate_session_phase_schedule.py or add the row."
+        )
+    phase = PARTICIPANT_SESSION_PHASE_SCHEDULE[pid][session]
+    if phase not in ("practice", "baseline", "focal_pm", "nonfocal_pm"):
+        raise SystemExit(f"Invalid phase {phase!r} for participant {pid}, session {session}.")
+    return phase
 
 
 def session_needs_pm_practice_block(session: int) -> bool:
-    """One PM practice block at session 13 (baseline→PM A) and session 20 (PM A→PM B)."""
-    return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
+    """PM practice block on Day-1 first focal and first nonfocal sessions (7 and 8)."""
+    return session in DAY1_FIRST_PM_SESSIONS
 
 
 def pm_practice_kind_for_session(session: int, participant_id: str) -> str:
@@ -1563,8 +1583,41 @@ def pm_practice_kind_for_session(session: int, participant_id: str) -> str:
 
 
 def _secondary_cue_label(session: int, participant_id: str) -> str:
-    """Participant-facing cue description key: orange_ring or dashed."""
-    return "orange ring" if session_phase_for(session, participant_id) == "focal_pm" else "dashed"
+    """Participant-facing cue description key for instruction filenames."""
+    phase = session_phase_for(session, participant_id)
+    if phase == "focal_pm":
+        return "orange band" if FOCAL_PM_STYLE == "center_disk" else "orange ring"
+    return "triangle" if NONFOCAL_PM_STYLE == "center_x" else "dashed"
+
+
+def _instruction_cue_stem_for_phase(session_phase: str) -> str | None:
+    if session_phase == "focal_pm":
+        return "orange band" if FOCAL_PM_STYLE == "center_disk" else "orange ring"
+    if session_phase == "nonfocal_pm":
+        return "triangle" if NONFOCAL_PM_STYLE == "center_x" else "dashed"
+    return None
+
+
+def participation_day_for_session(session: int) -> int:
+    """Calendar day index implied by session number (1–4)."""
+    if session <= 8:
+        return 1
+    if session <= 14:
+        return 2
+    if session <= 20:
+        return 3
+    return 4
+
+
+def is_end_of_day_session(session: int) -> bool:
+    return session in END_OF_DAY_SESSIONS
+
+
+def session_shows_pm_cue_example(session: int, participant_id: str) -> bool:
+    """Draw stimulus examples only on Day-1 first focal and first nonfocal instructions."""
+    return session in DAY1_FIRST_PM_SESSIONS and session_phase_for(
+        session, participant_id
+    ) in ("focal_pm", "nonfocal_pm")
 
 
 def get_session_display_config(session: int) -> dict:
@@ -1717,8 +1770,8 @@ def _apply_variant_to_stub(stub: dict, variant: dict, *, single_center: bool = F
 
 
 def _burnin_source_for_session(session_number: int, participant_id: str) -> tuple[str, int]:
-    """Phase and session number for burn-in trials (last session's task on phase change)."""
-    if session_number in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+    """Phase and session number for burn-in trials (last session's task on Day-1 PM intros)."""
+    if session_number in DAY1_FIRST_PM_SESSIONS:
         source_session = session_number - 1
         return session_phase_for(source_session, participant_id), source_session
     return session_phase_for(session_number, participant_id), session_number
@@ -2185,7 +2238,7 @@ def _load_pm_practice_instruction(
     if language not in INSTRUCTION_LANGUAGE_SUFFIX:
         raise SystemExit(f"Unsupported instruction language: {language!r}")
     cue = _secondary_cue_label(session, participant_id)
-    if session == FIRST_PM_SESSION:
+    if session == DAY1_FIRST_PM_SESSIONS[0]:
         stem = f"instruction practice after baseline {cue}"
     else:
         stem = f"instruction practice new cue {cue}"
@@ -2197,12 +2250,8 @@ def _load_pm_practice_instruction(
 
 
 def _burnin_intro_cue_for_phase(session_phase: str) -> str | None:
-    """Return orange ring / dashed stem for PM burn-in intros, or None for baseline."""
-    if session_phase == "focal_pm":
-        return "orange ring"
-    if session_phase == "nonfocal_pm":
-        return "dashed"
-    return None
+    """Return cue stem for PM burn-in intros, or None for baseline."""
+    return _instruction_cue_stem_for_phase(session_phase)
 
 
 def _load_burnin_intro_instruction(
@@ -2231,12 +2280,14 @@ def _show_burnin_intro_instruction(burnin_source_phase: str):
 
 
 def _show_pm_practice_instruction(session: int, participant_id: str) -> bool:
-    """PM practice intro with en/zh/da switcher on phase-transition sessions."""
-    if session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION):
+    """PM practice intro with en/zh/da switcher on Day-1 first PM sessions."""
+    if session in DAY1_FIRST_PM_SESSIONS:
         return _show_instruction_with_language_switch(
             lambda language: _load_pm_practice_instruction(
                 session, participant_id, language
             ),
+            draw_pm_example=session_shows_pm_cue_example(session, participant_id),
+            pm_example_kind=pm_practice_kind_for_session(session, participant_id),
         )
     return _show_instruction_text(
         _load_pm_practice_instruction(session, participant_id)
@@ -2256,6 +2307,7 @@ def _load_session_instruction(
     session: int, participant_id: str, *, language: str = "en"
 ) -> str:
     """Load the main session instruction (shown at start, or after the practice block)."""
+    phase = session_phase_for(session, participant_id)
     if session == 1:
         return _load_session1_instruction(language)
     if session == 2:
@@ -2266,13 +2318,13 @@ def _load_session_instruction(
         base = "instruction ses 4"
     elif session == 5:
         base = "instruction ses 5"
-    elif session <= N_PRACTICE_SESSIONS + N_BASELINE_SESSIONS:
+    elif session == 6 or phase == "baseline":
         base = "instruction ses 6 onward"
-    elif session == FIRST_PM_SESSION:
+    elif session == DAY1_FIRST_PM_SESSIONS[0]:
         return _load_after_baseline_session_instruction(
             session, participant_id, language
         )
-    elif session == FIRST_SECOND_PM_PHASE_SESSION:
+    elif session == DAY1_FIRST_PM_SESSIONS[1]:
         return _load_new_cue_session_instruction(session, participant_id, language)
     else:
         cue = _secondary_cue_label(session, participant_id)
@@ -2312,8 +2364,8 @@ def _load_new_cue_session_instruction(
 
 
 def _uses_phase_transition_language_switch(session: int) -> bool:
-    """Sessions 13 and 20: main phase-change instructions with en/zh/da switcher."""
-    return session in (FIRST_PM_SESSION, FIRST_SECOND_PM_PHASE_SESSION)
+    """Day-1 sessions 7 and 8: main phase-change instructions with en/zh/da switcher."""
+    return session in DAY1_FIRST_PM_SESSIONS
 
 
 def _uses_new_cue_language_switch(session: int) -> bool:
@@ -2321,7 +2373,7 @@ def _uses_new_cue_language_switch(session: int) -> bool:
 
 
 def _load_session_start_instruction(session: int, participant_id: str) -> str:
-    """First instruction screen: PM practice intro on first PM-phase sessions, else normal session intro."""
+    """First instruction screen: PM practice intro on Day-1 PM sessions, else normal session intro."""
     if session_needs_pm_practice_block(session):
         return _load_pm_practice_instruction(session, participant_id)
     return _load_session_instruction(session, participant_id)
@@ -2391,6 +2443,9 @@ _dialog_default_demographics = _load_last_session_demographics(
     _participant_data_dir(_dialog_default_participant),
 )
 session_dlg = gui.Dlg(title="Prospective MCP Session")
+session_dlg.addText(
+    "Sessions: 1–8 = Day 1; 9–14 = Day 2; 15–20 = Day 3; 21–26 = Day 4"
+)
 session_dlg.addField(
     "Participant",
     initial=_dialog_default_participant,
@@ -2603,6 +2658,11 @@ if PARTICIPANT == "test":
     )
 
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
+_SESSION_START_LOG_EXTRAS.append(
+    f"  Design day {participation_day_for_session(SESSION)}; "
+    f"session phase={SESSION_PHASE}; "
+    f"end-of-day={'Y' if is_end_of_day_session(SESSION) else 'N'}"
+)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
 INCLUDE_BURNIN = _should_include_burnin_block(
     SESSION, FIRST_SESSION_OF_DAY, PARTICIPATION_DAY
@@ -2840,9 +2900,14 @@ feedback4 = visual.TextStim(
     units=USE_UNITS,
     opacity=STIMULUS_OPACITY,
 )
+_end_instruction_file = (
+    "instruction end of day.txt"
+    if is_end_of_day_session(SESSION)
+    else "instruction end.txt"
+)
 end_text = visual.TextStim(
     win,
-    text=_load_instruction("instruction end.txt"),
+    text=_load_instruction(_end_instruction_file),
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
@@ -3036,6 +3101,93 @@ def draw_inner_filler_triangle(win, circle_pos):
     ).draw()
 
 
+def _draw_instruction_example_disk(pos, *, color_name: str, reward_value: int, pm_kind: str | None):
+    """One example disk for instruction screens (matches live trial drawing)."""
+    is_focal = pm_kind == "focal"
+    is_nonfocal = pm_kind == "nonfocal"
+    outer = visual.Circle(
+        win,
+        radius=CIRCLE_RADIUS,
+        pos=pos,
+        fillColor=COLORS[color_name],
+        lineColor=None,
+        lineWidth=0,
+        colorSpace=COLOR_SPACE,
+        edges=CIRCLE_EDGES,
+    )
+    outer.draw()
+    if is_focal and FOCAL_PM_STYLE == "center_disk":
+        draw_focal_pm_marker(win, pos, FOCAL_PM_STYLE, reward_value)
+    elif is_focal and FOCAL_PM_STYLE == "center_ring":
+        draw_focal_pm_marker(win, pos, FOCAL_PM_STYLE, reward_value)
+    inner = visual.Circle(
+        win,
+        radius=INNER_CIRCLE_RADIUS,
+        pos=pos,
+        fillColor=COLORS["white"],
+        lineColor=None,
+        colorSpace=COLOR_SPACE,
+        edges=CIRCLE_EDGES,
+    )
+    inner.draw()
+    reward_pos = pos
+    reward_height = REWARD_TEXT_HEIGHT
+    if _uses_inner_filler_symbols():
+        reward_pos = (pos[0], pos[1] + INNER_FILLER_NUMBER_Y_OFFSET_DEG)
+        reward_height = INNER_FILLER_REWARD_TEXT_HEIGHT
+    visual.TextStim(
+        win,
+        text=str(reward_value),
+        pos=reward_pos,
+        color=COLORS["black"],
+        colorSpace=COLOR_SPACE,
+        height=reward_height,
+        units=USE_UNITS,
+    ).draw()
+    if _uses_inner_filler_symbols():
+        if is_nonfocal:
+            draw_inner_filler_triangle(win, pos)
+        else:
+            draw_inner_filler_circle(win, pos)
+
+
+def draw_pm_instruction_examples(pm_kind: str):
+    """
+    Draw one normal + one PM example near the bottom of the instruction screen.
+
+    Positions keep disks above the monitor bottom (~±13.7 deg half-height on lab 1080p)
+    and below typical instruction wrap height.
+    """
+    example_y = -8.2
+    gap = CIRCLE_RADIUS * 2.6
+    left = (-gap, example_y)
+    right = (gap, example_y)
+    label_y = example_y - CIRCLE_RADIUS - 0.55
+    _draw_instruction_example_disk(left, color_name="red", reward_value=2, pm_kind=None)
+    _draw_instruction_example_disk(
+        right, color_name="blue", reward_value=3, pm_kind=pm_kind
+    )
+    left_label = "Normal" if pm_kind == "focal" else "Normal (circle)"
+    right_label = "Focal PM (orange band)" if pm_kind == "focal" else "Nonfocal PM (triangle)"
+    for text, x in ((left_label, left[0]), (right_label, right[0])):
+        visual.TextStim(
+            win,
+            text=text,
+            pos=(x, label_y),
+            color=COLORS["white"],
+            colorSpace=COLOR_SPACE,
+            height=0.35,
+            units=USE_UNITS,
+        ).draw()
+
+
+def _flip_instruction_frame(*, draw_pm_example: bool = False, pm_example_kind: str | None = None):
+    instructions.draw()
+    if draw_pm_example and pm_example_kind in ("focal", "nonfocal"):
+        draw_pm_instruction_examples(pm_example_kind)
+    win.flip()
+
+
 def _confirm_exit_or_continue():
     while True:
         esc_confirm_text.draw()
@@ -3184,6 +3336,8 @@ def _show_instruction_with_language_switch(
     *,
     initial_language: str | None = None,
     allow_experimenter_skip: bool = False,
+    draw_pm_example: bool = False,
+    pm_example_kind: str | None = None,
 ):
     """Show instruction text with en/zh/da switcher line separated above the body."""
     global SESSION1_INSTRUCTION_LANGUAGE
@@ -3199,8 +3353,9 @@ def _show_instruction_with_language_switch(
             use_session1_height=True,
             use_cjk_font=True,
         )
-        instructions.draw()
-        win.flip()
+        _flip_instruction_frame(
+            draw_pm_example=draw_pm_example, pm_example_kind=pm_example_kind
+        )
         if _debug_flag("auto_advance_instructions"):
             SESSION1_INSTRUCTION_LANGUAGE = language
             _debug_fast_wait()
@@ -3208,8 +3363,9 @@ def _show_instruction_with_language_switch(
         while True:
             keys = event.waitKeys(keyList=key_list, maxWait=0.5)
             if not keys:
-                instructions.draw()
-                win.flip()
+                _flip_instruction_frame(
+                    draw_pm_example=draw_pm_example, pm_example_kind=pm_example_kind
+                )
                 continue
             key = keys[0]
             if key == "c" and language != "zh":
@@ -3232,8 +3388,9 @@ def _show_instruction_with_language_switch(
                 return True
             if key == QUIT_KEY and _confirm_exit_or_continue():
                 return False
-            instructions.draw()
-            win.flip()
+            _flip_instruction_frame(
+                draw_pm_example=draw_pm_example, pm_example_kind=pm_example_kind
+            )
 
 
 def _show_session_instruction(session: int, participant_id: str) -> bool:

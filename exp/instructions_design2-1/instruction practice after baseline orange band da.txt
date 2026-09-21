@@ -1,0 +1,26 @@
+ØVELSE
+
+Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del, hvor der ud over hovedopgaven med farvevalg også er en særlig opgave.
+
+Inden hoveddelen af dagens session begynder, skal du øve dette kort.
+
+SÆRLIG OPGAVE: I nogle forsøgsrunder får én af cirklerne en ORANGE BAND langs kanten (cirklen beholder sin normale røde, blå eller grønne farve). Når du ser en ORANGE BAND, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
+
+LØBENDE OPGAVE (samme som før): Vælg cirklen med det højeste belønningsciffer:
+
+{COLOR_KEY_LINE}
+
+Under øvelsen vises farve-tast-tilknytningen IKKE på skærmen. Brug det, du har lært.
+
+Når øvelsen er slut, ser du de fulde instruktioner, før det egentlige eksperiment begynder.
+
+__________
+
+Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med den særlige opgave: når du ser en ORANGE BAND, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
+
+__________
+
+
+Se eksemplet nedenfor: venstre = et normalt forsøg; højre = et særligt-opgave-forsøg.
+
+Tryk på *space* for at begynde øvelsen.

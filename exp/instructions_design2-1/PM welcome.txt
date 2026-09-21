@@ -1,0 +1,7 @@
+Welcome to the session.
+
+Choose the colored circle with the highest reward number.
+
+Red = N     Blue = J     Green = K
+
+Press SPACE to begin.
