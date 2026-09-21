@@ -65,8 +65,8 @@ NONFOCAL_PM_STYLE = "center_x"
 # (6 PM / 44). 3 gives 18 PM + 26 ongoing, still balanced across 6 cue conditions.
 TEST_PM_TRIALS_PER_CUE_PER_BLOCK = 3
 # Scale the three cue disks, digits, inner shapes, and their spacing together.
-# 1.0 = original CCRP size; 1.8 makes the reward digit readable with the inner shape.
-CUE_DISPLAY_SCALE = 1.8
+# 1.0 = original CCRP size. Keep below ~1.6 so the NJK keymap stays on a 1080p screen.
+CUE_DISPLAY_SCALE = 1.5
 ############################# TO MODIFY ABOVE
 
 
@@ -855,17 +855,19 @@ CUE_OUTER_RADIUS_DEG = 22 * STIM_FACTOR * CUE_DISPLAY_SCALE
 CUE_INNER_RADIUS_DEG = 12 * STIM_FACTOR * CUE_DISPLAY_SCALE
 CUE_TEXT_HEIGHT_DEG = 14 * STIM_FACTOR * CUE_DISPLAY_SCALE
 
-# Color-key legend (ResponseColorSize=30*SF, ResponseColorDistance=50*SF).
-RESPONSE_COLOR_SIZE_DEG = 30 * STIM_FACTOR * CUE_DISPLAY_SCALE
-RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR * CUE_DISPLAY_SCALE
+# Color-key legend stays at original paradigm size (not scaled with cue disks),
+# so it remains on-screen when CUE_DISPLAY_SCALE > 1.
+RESPONSE_COLOR_SIZE_DEG = 30 * STIM_FACTOR
+RESPONSE_COLOR_DISTANCE_DEG = 50 * STIM_FACTOR
 KEYMAP_TEXT_HEIGHT_DEG = 0.55 * RESPONSE_COLOR_SIZE_DEG
 KEYMAP_GAP_BELOW_TRIANGLE_ROW_UNITS = 0.6 * 3  # paradigm row_h ratio × 3 below lowest cue disk
 
-# Triangle cue positions (paradigm-style coordinates * STIM_FACTOR * cue scale).
-# Top (0, 60*SF); bottom pair at y=-50*SF, x=±60*SF.
+# Equilateral triangle: keep the original vertical span, set half-base = height / √3
+# so top–BL = top–BR = BL–BR.
 _TRIANGLE_TOP_Y_DEG = 60 * STIM_FACTOR * CUE_DISPLAY_SCALE
 _TRIANGLE_BOTTOM_Y_DEG = -50 * STIM_FACTOR * CUE_DISPLAY_SCALE
-_TRIANGLE_BOTTOM_X_DEG = 60 * STIM_FACTOR * CUE_DISPLAY_SCALE
+_TRIANGLE_HEIGHT_DEG = _TRIANGLE_TOP_Y_DEG - _TRIANGLE_BOTTOM_Y_DEG
+_TRIANGLE_BOTTOM_X_DEG = _TRIANGLE_HEIGHT_DEG / math.sqrt(3.0)
 POSITIONS = {
     "top": (0.0, _TRIANGLE_TOP_Y_DEG),
     "bottom_left": (-_TRIANGLE_BOTTOM_X_DEG, _TRIANGLE_BOTTOM_Y_DEG),
@@ -3965,8 +3967,8 @@ for trial in trials:
             radius=CIRCLE_RADIUS,
             pos=pos,
             fillColor=COLORS[normal_color],
-            lineColor=None if is_nonfocal_dashed_target else COLORS["white"],
-            lineWidth=0 if is_nonfocal_dashed_target else BORDER_LINE_WIDTH,
+            lineColor=None,
+            lineWidth=0,
             colorSpace=COLOR_SPACE,
             edges=CIRCLE_EDGES,
         )
