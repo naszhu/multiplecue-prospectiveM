@@ -151,7 +151,7 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v3.1.0"
+CODE_VERSION = "v3.2.0"
 EXPERIMENT_NAME = "PMCP2-1"
 EXPERIMENT_NUMBER = 1003
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -180,6 +180,12 @@ REPEAT_REASON = ""
 DATA_FILE_STEM = ""
 START_FROM_BLOCK = 0
 RESUME_NEW_FILE = False
+AUTOMATIC_CUMULATIVE_RESUME = False
+MANUAL_BLOCK_OVERRIDE = False
+DETECTED_START_FROM_BLOCK: int | None = None
+RESUME_PARENT_FILE = ""
+OVERRIDE_REASON = ""
+COPIED_PRIOR_BLOCKS = False
 AGE = "NA"
 GENDER = "NA"
 PARTICIPATION_DAY = 1
@@ -567,7 +573,7 @@ def _list_session_trial_csvs(participant: str, out_dir: Path) -> list[tuple[int,
         return []
     pattern = re.compile(
         rf"^PMCP_subj{re.escape(str(participant))}_ses(\d+)"
-        rf"(?:\(\d+\))?(?:_resume\d+)?_trials\.csv$"
+        rf"(?:\(\d+\))?(?:_(?:resume|override)\d+)?_trials\.csv$"
     )
     found: list[tuple[int, Path]] = []
     for path in out_dir.iterdir():
@@ -632,15 +638,18 @@ def _expected_trials_for_saved_block(session: int, block: int) -> int:
 
 
 def _analyze_trials_csv_progress(trials_path: Path, session: int) -> dict:
-    """Find the first unfinished block in a saved session CSV."""
+    """Find the first unfinished block and whether its prefix is safe to copy."""
     counts = _task_row_counts_by_block(trials_path)
     n_main = get_session_trial_config(session)["n_blocks"]
 
-    def unfinished(block: int, label: str, start_from: int) -> dict:
+    def unfinished(
+        block: int, label: str, start_from: int, *, safe_to_copy: bool = True
+    ) -> dict:
         expected = _expected_trials_for_saved_block(session, block)
         got = counts.get(block, 0)
         return {
             "incomplete": True,
+            "safe_to_copy": safe_to_copy,
             "resume_block": start_from,
             "resume_block_label": label,
             "unfinished_block": block,
@@ -650,15 +659,19 @@ def _analyze_trials_csv_progress(trials_path: Path, session: int) -> dict:
 
     if 0 in counts:
         expected = _expected_trials_for_saved_block(session, 0)
+        if counts[0] > expected:
+            return unfinished(0, "burn-in (block 0)", 0, safe_to_copy=False)
         if counts[0] < expected:
             return unfinished(0, "burn-in (block 0)", 0)
     if -1 in counts:
         expected = _expected_trials_for_saved_block(session, -1)
+        if counts[-1] > expected:
+            return unfinished(-1, "PM practice", 0, safe_to_copy=False)
         if counts[-1] < expected:
             return unfinished(-1, "PM practice", 0)
 
     first_main_block = 1
-    if re.search(r"_resume\d+_trials\.csv$", trials_path.name):
+    if re.search(r"_(?:resume|override)\d+_trials\.csv$", trials_path.name):
         saved_main_blocks = [block for block in counts if block >= 1]
         if saved_main_blocks:
             first_main_block = min(saved_main_blocks)
@@ -666,11 +679,14 @@ def _analyze_trials_csv_progress(trials_path: Path, session: int) -> dict:
     for block in range(first_main_block, n_main + 1):
         expected = _expected_trials_for_saved_block(session, block)
         got = counts.get(block, 0)
+        if got > expected:
+            return unfinished(block, str(block), block, safe_to_copy=False)
         if got < expected:
             return unfinished(block, str(block), block)
 
     return {
         "incomplete": False,
+        "safe_to_copy": True,
         "resume_block": 0,
         "resume_block_label": "",
         "unfinished_block": None,
@@ -686,6 +702,7 @@ def _detect_session_resume(participant: str, out_dir: Path) -> dict:
         "last_session": last_session,
         "trials_path": trials_path,
         "incomplete": False,
+        "safe_to_copy": True,
         "suggested_session": 1 if last_session is None else last_session + 1,
         "suggested_start_block": 0,
         "resume_block_label": "",
@@ -697,14 +714,22 @@ def _detect_session_resume(participant: str, out_dir: Path) -> dict:
     if not progress["incomplete"]:
         return empty
     label = progress["resume_block_label"]
-    message = (
-        f"Detected: you did not finish block {label} from last session {last_session}. "
-        "Continue from there?"
-    )
+    if progress["safe_to_copy"]:
+        message = (
+            f"Detected: you did not finish block {label} from last session {last_session}. "
+            "Continue from there?"
+        )
+    else:
+        message = (
+            f"Detected: block {label} in session {last_session} has "
+            f"{progress['trials_done_in_block']} rows, but {progress['trials_expected_in_block']} "
+            "were expected. Automatic copying is unsafe; continuing requires an override reason."
+        )
     return {
         "last_session": last_session,
         "trials_path": trials_path,
         "incomplete": True,
+        "safe_to_copy": progress["safe_to_copy"],
         "suggested_session": last_session,
         "suggested_start_block": progress["resume_block"],
         "resume_block_label": label,
@@ -712,30 +737,113 @@ def _detect_session_resume(participant: str, out_dir: Path) -> dict:
     }
 
 
-def _resume_root_stem(trials_path: Path) -> str:
+def _continuation_root_stem(trials_path: Path) -> str:
     stem = trials_path.name[: -len("_trials.csv")]
-    return re.sub(r"_resume\d+$", "", stem)
+    return re.sub(r"_(?:resume|override)\d+$", "", stem)
 
 
-def _resume_segment_number(trials_path: Path) -> int:
+def _continuation_segment_number(trials_path: Path) -> int:
     stem = trials_path.name[: -len("_trials.csv")]
-    match = re.search(r"_resume(\d+)$", stem)
+    match = re.search(r"_(?:resume|override)(\d+)$", stem)
     return int(match.group(1)) if match else 1
 
 
-def _next_resume_output_paths(
-    out_dir: Path, parent_trials_path: Path
+def _next_continuation_output_paths(
+    out_dir: Path, parent_trials_path: Path, kind: str
 ) -> tuple[Path, Path, str, int]:
-    """Return unused resume paths without modifying the parent data file."""
-    root_stem = _resume_root_stem(parent_trials_path)
-    segment = max(2, _resume_segment_number(parent_trials_path) + 1)
+    """Return unused resume/override paths using one shared segment sequence."""
+    if kind not in {"resume", "override"}:
+        raise ValueError(f"Unknown continuation kind: {kind!r}")
+    root_stem = _continuation_root_stem(parent_trials_path)
+    segment = max(2, _continuation_segment_number(parent_trials_path) + 1)
     while True:
-        stem = f"{root_stem}_resume{segment}"
+        sibling_exists = any(
+            (out_dir / f"{root_stem}_{candidate_kind}{segment}_trials.csv").exists()
+            or (out_dir / f"{root_stem}_{candidate_kind}{segment}_metadata.json").exists()
+            for candidate_kind in ("resume", "override")
+        )
+        if sibling_exists:
+            segment += 1
+            continue
+        stem = f"{root_stem}_{kind}{segment}"
         trials_path = (out_dir / f"{stem}_trials.csv").resolve()
         metadata_path = (out_dir / f"{stem}_metadata.json").resolve()
-        if not trials_path.exists() and not metadata_path.exists():
-            return trials_path, metadata_path, stem, segment
-        segment += 1
+        return trials_path, metadata_path, stem, segment
+
+
+def _copy_complete_prefix_to_resume(
+    parent_trials_path: Path,
+    resume_trials_path: Path,
+    session: int,
+    start_from_block: int,
+) -> tuple[int, float, list[str], int]:
+    """Copy only complete blocks before start_from_block into a new resume CSV."""
+    with open(parent_trials_path, encoding="utf-8", newline="") as fp:
+        reader = csv.DictReader(fp)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+    if not fieldnames:
+        raise SystemExit(f"Cannot resume from a CSV without a header: {parent_trials_path.name}")
+
+    counts: dict[int, int] = {}
+    first_main_block = 1
+    saved_main_blocks: list[int] = []
+    for row in rows:
+        if not _is_saved_task_row(row):
+            continue
+        try:
+            block = int(row.get("Block"))
+        except (TypeError, ValueError):
+            continue
+        counts[block] = counts.get(block, 0) + 1
+        if block >= 1:
+            saved_main_blocks.append(block)
+    if re.search(r"_(?:resume|override)\d+_trials\.csv$", parent_trials_path.name):
+        if saved_main_blocks:
+            first_main_block = min(saved_main_blocks)
+
+    blocks_to_validate = sorted(
+        block
+        for block in counts
+        if block < 1 and block < start_from_block
+    ) + list(range(first_main_block, start_from_block))
+    for block in blocks_to_validate:
+        expected = _expected_trials_for_saved_block(session, block)
+        got = counts.get(block, 0)
+        if got != expected:
+            raise SystemExit(
+                f"Cannot copy block {block}: found {got} task rows, expected {expected}. "
+                "Choose a manual block override instead."
+            )
+
+    copied_rows: list[dict] = []
+    last_trial_n = 0
+    last_cum_reward = 0.0
+    for row in rows:
+        if not _is_saved_task_row(row):
+            continue
+        try:
+            block = int(row.get("Block"))
+        except (TypeError, ValueError):
+            continue
+        if block >= start_from_block:
+            continue
+        copied_rows.append(row)
+        try:
+            last_trial_n = int(row.get("Trial") or last_trial_n)
+        except (TypeError, ValueError):
+            pass
+        try:
+            last_cum_reward = float(row.get("CumReward") or last_cum_reward)
+        except (TypeError, ValueError):
+            pass
+
+    resume_trials_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(resume_trials_path, "w", encoding="utf-8", newline="") as fp:
+        writer = csv.DictWriter(fp, fieldnames=fieldnames, extrasaction="ignore", restval="")
+        writer.writeheader()
+        writer.writerows(copied_rows)
+    return last_trial_n, last_cum_reward, fieldnames, len(copied_rows)
 
 
 def _suggested_next_session(participant: str, out_dir: Path) -> int:
@@ -833,18 +941,23 @@ def _resolve_data_output_paths(
     session: int,
     out_dir: Path,
     *,
-    resume_parent: Path | None = None,
+    continuation_parent: Path | None = None,
+    continuation_kind: str | None = None,
 ) -> tuple[Path, Path, str, str, str]:
     """Resolve new output paths for a normal, repeated, or resumed run."""
     base_stem = f"PMCP_subj{participant}_ses{session}"
     trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
     metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
 
-    if resume_parent is not None:
-        resume_trials, resume_meta, stem, _segment = _next_resume_output_paths(
-            out_dir, resume_parent
+    if continuation_parent is not None:
+        if continuation_kind is None:
+            raise ValueError("continuation_kind is required with continuation_parent")
+        continuation_trials, continuation_meta, stem, _segment = (
+            _next_continuation_output_paths(
+                out_dir, continuation_parent, continuation_kind
+            )
         )
-        return resume_trials, resume_meta, stem, "", ""
+        return continuation_trials, continuation_meta, stem, "", ""
 
     if not trials_path.exists() and not metadata_path.exists():
         return trials_path, metadata_path, base_stem, "", ""
@@ -1634,6 +1747,9 @@ def _build_metadata(
             "start_from_block": START_FROM_BLOCK,
             "resume_append_existing": False,
             "resume_saved_as_new_file": bool(RESUME_NEW_FILE),
+            "automatic_cumulative_resume": bool(AUTOMATIC_CUMULATIVE_RESUME),
+            "manual_block_override": bool(MANUAL_BLOCK_OVERRIDE),
+            "copied_prior_blocks": bool(COPIED_PRIOR_BLOCKS),
             "blocks": n_blocks,
             "main_trials_per_block": n_trials_per_block,
             "total_trials": n_trials_total,
@@ -1692,8 +1808,19 @@ def _build_metadata(
             "color_map_layout": COLOR_MAP_LAYOUT,
             "color_map_layout_assigned": COLOR_MAP_LAYOUT_ASSIGNED,
             "color_map_layout_overridden": COLOR_MAP_LAYOUT_OVERRIDDEN,
+            "run_type": (
+                "automatic_cumulative_resume"
+                if AUTOMATIC_CUMULATIVE_RESUME
+                else ("manual_block_override" if MANUAL_BLOCK_OVERRIDE else (
+                    "repeat" if REPEAT_DATA_NOTE else "standard"
+                ))
+            ),
             "repeated_run": bool(REPEAT_DATA_NOTE),
             "repeat_reason": REPEAT_REASON,
+            "resume_parent_file": RESUME_PARENT_FILE,
+            "detected_start_block": DETECTED_START_FROM_BLOCK,
+            "selected_start_block": START_FROM_BLOCK,
+            "override_reason": OVERRIDE_REASON,
             "data_file_stem": DATA_FILE_STEM,
             "participant_data_subdirectory": str(PARTICIPANT_DATA_DIR),
             "subject": PARTICIPANT,
@@ -2943,10 +3070,66 @@ if _unexpected_session_log_note:
 
 PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 _resume_existing = _latest_trials_csv_for_session(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
-RESUME_NEW_FILE = False
-if START_FROM_BLOCK >= 1 and _resume_existing is not None:
+_existing_progress = None
+if _resume_existing is not None:
     _existing_progress = _analyze_trials_csv_progress(_resume_existing, SESSION)
-    RESUME_NEW_FILE = bool(_existing_progress["incomplete"])
+DETECTED_START_FROM_BLOCK = (
+    int(_existing_progress["resume_block"])
+    if _existing_progress is not None and _existing_progress["incomplete"]
+    else 0
+)
+AUTOMATIC_CUMULATIVE_RESUME = bool(
+    START_FROM_BLOCK >= 1
+    and _resume_existing is not None
+    and _existing_progress is not None
+    and _existing_progress["incomplete"]
+    and _existing_progress["safe_to_copy"]
+    and START_FROM_BLOCK == DETECTED_START_FROM_BLOCK
+)
+MANUAL_BLOCK_OVERRIDE = bool(
+    START_FROM_BLOCK >= 1 and not AUTOMATIC_CUMULATIVE_RESUME
+)
+RESUME_NEW_FILE = AUTOMATIC_CUMULATIVE_RESUME or MANUAL_BLOCK_OVERRIDE
+if MANUAL_BLOCK_OVERRIDE:
+    detected_label = (
+        str(DETECTED_START_FROM_BLOCK)
+        if _existing_progress is not None and _existing_progress["incomplete"]
+        else "no incomplete block"
+    )
+    if _existing_progress is not None and not _existing_progress["safe_to_copy"]:
+        override_explanation = (
+            f"Automatic copying is unsafe for detected block {detected_label} "
+            f"({_existing_progress['trials_done_in_block']} rows found; "
+            f"{_existing_progress['trials_expected_in_block']} expected). "
+            f"You selected block {START_FROM_BLOCK}."
+        )
+    else:
+        override_explanation = (
+            f"The automatically detected start was {detected_label}, but you selected "
+            f"block {START_FROM_BLOCK}."
+        )
+    _override_reason_value = _tk_ask_string(
+        "Manual block override",
+        (
+            f"{override_explanation}\n\n"
+            "No previous trial rows will be copied into the new override file. "
+            "Enter the reason for this manual override:"
+        ),
+    )
+    if _override_reason_value is None:
+        raise SystemExit("Manual block override cancelled.")
+    OVERRIDE_REASON = _override_reason_value.strip()
+    if not OVERRIDE_REASON:
+        raise SystemExit("A reason is required for a manual block override.")
+
+_continuation_parent = _resume_existing
+if _continuation_parent is None and RESUME_NEW_FILE:
+    _continuation_parent = (
+        PARTICIPANT_DATA_DIR / f"PMCP_subj{PARTICIPANT}_ses{SESSION}_trials.csv"
+    )
+_continuation_kind = (
+    "resume" if AUTOMATIC_CUMULATIVE_RESUME else ("override" if MANUAL_BLOCK_OVERRIDE else None)
+)
 (
     _out_trials_path,
     _out_metadata_path,
@@ -2957,15 +3140,25 @@ if START_FROM_BLOCK >= 1 and _resume_existing is not None:
     PARTICIPANT,
     SESSION,
     PARTICIPANT_DATA_DIR,
-    resume_parent=_resume_existing if RESUME_NEW_FILE else None,
+    continuation_parent=_continuation_parent if RESUME_NEW_FILE else None,
+    continuation_kind=_continuation_kind,
 )
+if _resume_existing is not None and RESUME_NEW_FILE:
+    RESUME_PARENT_FILE = _resume_existing.name
 if REPEAT_REASON:
     _SESSION_START_LOG_EXTRAS.append(f"  Repeated run reason: {REPEAT_REASON}")
+if MANUAL_BLOCK_OVERRIDE:
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Manual block override: detected={DETECTED_START_FROM_BLOCK}, "
+        f"selected={START_FROM_BLOCK}, reason={OVERRIDE_REASON!r}; no prior rows copied."
+    )
 _SESSION_START_LOG_EXTRAS.append(f"  Output files: {DATA_FILE_STEM}_trials.csv, {DATA_FILE_STEM}_metadata.json")
 if START_FROM_BLOCK >= 1:
     _SESSION_START_LOG_EXTRAS.append(
         f"  Start from block {START_FROM_BLOCK} "
-        f"(skipping earlier blocks{'; saving a new continuation file' if RESUME_NEW_FILE else ''})"
+        f"(skipping earlier blocks"
+        f"{'; saving a cumulative resume file' if AUTOMATIC_CUMULATIVE_RESUME else ''}"
+        f"{'; saving a standalone override file' if MANUAL_BLOCK_OVERRIDE else ''})"
     )
 if os.environ.get(_IDLE_INHIBITOR_ENV) == "1":
     _SESSION_START_LOG_EXTRAS.append("  GNOME idle/suspend inhibited via gnome-session-inhibit.")
@@ -4438,6 +4631,34 @@ exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
+if AUTOMATIC_CUMULATIVE_RESUME and _resume_existing is not None:
+    trial_index, cum_reward, csv_columns, _copied_row_count = (
+        _copy_complete_prefix_to_resume(
+            _resume_existing,
+            _out_trials_path,
+            SESSION,
+            START_FROM_BLOCK,
+        )
+    )
+    first_trial_save = False
+    COPIED_PRIOR_BLOCKS = _copied_row_count > 0
+    metadata = _build_metadata(
+        exp_start_time_str=exp_start_time_str,
+        n_blocks=SESSION_N_BLOCKS,
+        n_trials_total=N_TRIALS,
+        n_trials_per_block=SESSION_TRIALS_PER_BLOCK,
+        include_burnin_block=INCLUDE_BURNIN,
+        include_pm_practice_block=INCLUDE_PM_PRACTICE,
+        display_config=DISPLAY_CONFIG,
+        dat_columns=csv_columns,
+    )
+    with open(_out_metadata_path, "w", encoding="utf-8") as meta_fp:
+        json.dump(metadata, meta_fp, indent=2, ensure_ascii=False)
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Copied {_copied_row_count} retained rows from {_resume_existing.name}; "
+        f"restarting block {START_FROM_BLOCK} after Trial {trial_index}, "
+        f"CumReward={cum_reward:.2f}."
+    )
 _response_device_log = f"  Response device: {RESPONSE_DEVICE}; device name: {DEVICE_NAME}"
 if simulate_response_box:
     _response_device_log += " (SRB simulated with keyboard)"
