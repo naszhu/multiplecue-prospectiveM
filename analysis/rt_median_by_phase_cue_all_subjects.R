@@ -3,6 +3,9 @@
 # Phases: baseline, focal_pm, nonfocal_pm (practice excluded)
 # Cue conditions: (1), (2), (3), (1,2), (1,3), (2,3)
 #
+# Per-subject plots go under analysis/fig/subXX/.
+# Group plots: up to 9 subjects per page, then next page, until all subjects are covered.
+#
 # Run from multiplecue-prospectiveM/ or analysis/:
 #   Rscript analysis/rt_median_by_phase_cue_all_subjects.R
 #   Rscript analysis/rt_median_by_phase_cue_all_subjects.R 17 28
@@ -14,6 +17,7 @@ suppressPackageStartupMessages({
 
 # ---- CONFIG ----
 exclude_subject_ids <- c(100L)
+subjects_per_page <- 9L
 rt_min_ms <- 0
 rt_max_ms <- 4000
 exclude_timeouts <- TRUE
@@ -337,6 +341,84 @@ make_accuracy_plot <- function(summary_df, subject_id, session_note, pm_tag) {
     )
 }
 
+facet_ncol_for <- function(n) {
+  if (n <= 3) {
+    return(n)
+  }
+  if (n <= 6) {
+    return(3L)
+  }
+  3L
+}
+
+make_rt_median_facet_plot <- function(summary_df, page_title) {
+  n_subj <- n_distinct(summary_df$SubjectLabel)
+  ggplot(summary_df, aes(x = CueConditionNorm, y = median_rt, color = Phase, group = Phase)) +
+    geom_errorbar(
+      aes(ymin = q25, ymax = q75),
+      width = 0.12,
+      linewidth = 0.55,
+      alpha = 0.85
+    ) +
+    geom_line(linewidth = 0.85) +
+    geom_point(size = 2.2) +
+    facet_wrap(~SubjectLabel, ncol = facet_ncol_for(n_subj), scales = "free_y") +
+    scale_color_manual(values = phase_colors, drop = FALSE) +
+    labs(
+      title = page_title,
+      subtitle = "Points = median RT; bars = IQR (25th–75th percentile); ongoing-task trials only. Y-axis free per subject.",
+      x = "Cue condition",
+      y = "Median reaction time (ms)",
+      color = "Phase"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      strip.text = element_text(face = "bold"),
+      legend.position = "bottom",
+      panel.spacing = unit(0.8, "lines")
+    )
+}
+
+make_accuracy_facet_plot <- function(summary_df, page_title) {
+  n_subj <- n_distinct(summary_df$SubjectLabel)
+  ggplot(summary_df, aes(x = CueConditionNorm, y = accuracy, color = Phase, group = Phase)) +
+    geom_errorbar(
+      aes(ymin = ci_lower, ymax = ci_upper),
+      width = 0.12,
+      linewidth = 0.55,
+      alpha = 0.85
+    ) +
+    geom_line(linewidth = 0.85) +
+    geom_point(size = 2.2) +
+    facet_wrap(~SubjectLabel, ncol = facet_ncol_for(n_subj), scales = "free_y") +
+    scale_color_manual(values = phase_colors, drop = FALSE) +
+    scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +
+    labs(
+      title = page_title,
+      subtitle = "Points = mean accuracy; bars = 95% Wilson CI; timeouts excluded. Y-axis free per subject.",
+      x = "Cue condition",
+      y = "Accuracy",
+      color = "Phase"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      strip.text = element_text(face = "bold"),
+      legend.position = "bottom",
+      panel.spacing = unit(0.8, "lines")
+    )
+}
+
+chunk_vector <- function(x, size) {
+  if (!length(x)) {
+    return(list())
+  }
+  split(x, ceiling(seq_along(x) / size))
+}
+
 analyze_subject <- function(data_dir, fig_root, subject_id) {
   raw_df <- read_subject_trials(data_dir, subject_id)
   if (is.null(raw_df) || nrow(raw_df) == 0) {
@@ -362,6 +444,12 @@ analyze_subject <- function(data_dir, fig_root, subject_id) {
 
   session_note <- phase_session_note(trial_df)
   pm_tag <- pm_order_tag(raw_df)
+  subject_label <- if (nzchar(pm_tag)) {
+    paste0("Subject ", subject_id, " ", pm_tag)
+  } else {
+    paste0("Subject ", subject_id)
+  }
+
   rt_plot <- make_rt_median_plot(summary_df, subject_id, session_note, pm_tag)
   acc_plot <- make_accuracy_plot(acc_summary_df, subject_id, session_note, pm_tag)
 
@@ -375,7 +463,20 @@ analyze_subject <- function(data_dir, fig_root, subject_id) {
     nrow(trial_df), " trials; phases: ",
     paste(intersect(phase_levels, unique(trial_df$Phase)), collapse = ", "), ")"
   )
-  invisible(list(rt = rt_file, accuracy = acc_file))
+
+  invisible(list(
+    subject_id = subject_id,
+    subject_label = subject_label,
+    rt_summary = summary_df %>% mutate(
+      SubjectId = subject_id,
+      SubjectLabel = subject_label
+    ),
+    acc_summary = acc_summary_df %>% mutate(
+      SubjectId = subject_id,
+      SubjectLabel = subject_label
+    ),
+    files = list(rt = rt_file, accuracy = acc_file)
+  ))
 }
 
 proj_root <- find_project_root()
@@ -396,8 +497,78 @@ if (!length(subject_ids)) {
 
 message("Analyzing subjects: ", paste(subject_ids, collapse = ", "))
 
+all_rt <- list()
+all_acc <- list()
 for (sid in subject_ids) {
-  analyze_subject(data_dir, fig_root, sid)
+  res <- analyze_subject(data_dir, fig_root, sid)
+  if (!is.null(res)) {
+    all_rt[[as.character(sid)]] <- res$rt_summary
+    all_acc[[as.character(sid)]] <- res$acc_summary
+  }
+}
+
+if (length(all_rt)) {
+  rt_all_df <- bind_rows(all_rt)
+  acc_all_df <- bind_rows(all_acc)
+
+  plotted_ids <- sort(unique(rt_all_df$SubjectId))
+  id_chunks <- chunk_vector(plotted_ids, subjects_per_page)
+  n_pages <- length(id_chunks)
+
+  for (page_i in seq_along(id_chunks)) {
+    page_ids <- id_chunks[[page_i]]
+    rt_page <- rt_all_df %>%
+      filter(SubjectId %in% page_ids) %>%
+      mutate(
+        SubjectLabel = factor(
+          SubjectLabel,
+          levels = unique(SubjectLabel[order(SubjectId)])
+        )
+      )
+    acc_page <- acc_all_df %>%
+      filter(SubjectId %in% page_ids) %>%
+      mutate(
+        SubjectLabel = factor(
+          SubjectLabel,
+          levels = unique(SubjectLabel[order(SubjectId)])
+        )
+      )
+
+    n_facet <- length(page_ids)
+    ncol_f <- facet_ncol_for(n_facet)
+    nrow_f <- ceiling(n_facet / ncol_f)
+    facet_w <- max(10, 4.2 * ncol_f)
+    facet_h <- max(6.5, 3.6 * nrow_f)
+
+    id_range <- paste0(min(page_ids), "-", max(page_ids))
+    page_suffix <- sprintf("_p%02d_of_%02d_sub%s", page_i, n_pages, id_range)
+    rt_title <- sprintf(
+      "Median RT by phase and cue condition (page %d/%d; subjects %s)",
+      page_i, n_pages, paste(page_ids, collapse = ", ")
+    )
+    acc_title <- sprintf(
+      "Accuracy by cue condition and phase (page %d/%d; subjects %s)",
+      page_i, n_pages, paste(page_ids, collapse = ", ")
+    )
+
+    rt_facet <- make_rt_median_facet_plot(rt_page, rt_title)
+    acc_facet <- make_accuracy_facet_plot(acc_page, acc_title)
+
+    rt_facet_file <- file.path(
+      fig_root, paste0("rt_median_by_phase_cue_all_subjects", page_suffix, ".png")
+    )
+    acc_facet_file <- file.path(
+      fig_root, paste0("accuracy_by_phase_cue_all_subjects", page_suffix, ".png")
+    )
+    ggsave(rt_facet_file, rt_facet, width = facet_w, height = facet_h, dpi = 300, bg = "white")
+    ggsave(acc_facet_file, acc_facet, width = facet_w, height = facet_h, dpi = 300, bg = "white")
+
+    message(
+      "Saved page ", page_i, "/", n_pages, " (", n_facet, " subjects: ",
+      paste(page_ids, collapse = ", "), "):\n  ",
+      rt_facet_file, "\n  ", acc_facet_file
+    )
+  }
 }
 
 cat("Done.\n")
