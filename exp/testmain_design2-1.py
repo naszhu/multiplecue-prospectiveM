@@ -42,6 +42,13 @@ EXP_DIR = Path(__file__).resolve().parent
 
 DEVICE_NAME_CHOICES = ["KB", "RB", "SRB1", "SRB2", "SRB3", "SRB4", "SRB5", "SRB6"]
 COLOR_MAP_LAYOUT_CHOICES = ["njk"]
+
+# DEBUG ONLY — used when dialog participant is "test" (see _apply_test_pm_frequency).
+# Real participants always use PM_TRIALS_PER_CUE_PER_BLOCK_DEFAULT = 1 below, i.e.:
+#   6 PM + 36 ongoing per 42-trial block (exactly 6 ongoing per cue).
+# Setting this to 3 only for "test" raises PM density so you see more PM trials while debugging:
+#   3 PM × 6 cues = 18 PM, leaving 42−18 = 24 ongoing (exactly 4 ongoing per cue).
+
 ############################# TO MODIFY BELOW
 DEBUG_CONFIG = {
     "enabled": False,
@@ -61,8 +68,6 @@ FOCAL_PM_STYLE = "center_disk"
 # Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x"
 # (small circle in the white center on every disk; the PM target replaces it with a triangle).
 NONFOCAL_PM_STYLE = "center_x"
-# Dialog participant "test" only: PM trials per cue per block. Real experiment uses 1
-# (6 PM / 44). 3 gives 18 PM + 26 ongoing, still balanced across 6 cue conditions.
 TEST_PM_TRIALS_PER_CUE_PER_BLOCK = 3
 # Scale the three cue disks, digits, inner shapes, and their spacing together.
 # 1.0 = original CCRP size. Keep below ~1.6 so the NJK keymap stays on a 1080p screen.
@@ -159,17 +164,19 @@ N_BASELINE_SESSIONS = 7
 N_PM_SESSIONS_PER_KIND = 7
 N_CUE_CONDITIONS = 6
 N_BLOCKS = 9
-TOTAL_TRIALS_PER_SESSION = 396
+# 42 = 6 cue conditions × 7: baseline gets exactly 7 ongoing per cue;
+# PM (k=1) gets exactly 1 PM + 6 ongoing per cue (6/42 ≈ 14.3% PM).
+TOTAL_TRIALS_PER_SESSION = 378
 TRIALS_PER_BLOCK = TOTAL_TRIALS_PER_SESSION // N_BLOCKS
 REPS_PER_CUE_PER_BLOCK = TRIALS_PER_BLOCK // N_CUE_CONDITIONS
 BLOCK_TRIAL_REMAINDER = TRIALS_PER_BLOCK % N_CUE_CONDITIONS
 
-# Main PM blocks: 44 trials, 6 cue conditions. PM count is k per cue, so 6k PM
-# trials plus the remaining ongoing trials must equal 44.
-# k=1 is the real-experiment rate (6 PM / 44 ≈ 14%).
-# For dialog participant "test", use k=3 (18 PM / 44): every cue still has 4–5
-# ongoing trials (26 ongoing = 4*6 + 2 remainder). Max k with ≥1 ongoing per
-# cue is 6 (36 PM, 8 ongoing).
+# Per-cue PM rate k. Real experiment: k=1.
+# Block totals are derived automatically from TRIALS_PER_BLOCK (not hand-written):
+#   PM trials/block     = 6 × k
+#   ongoing trials/block = TRIALS_PER_BLOCK − 6k
+#   ongoing per cue      = ongoing // 6  (remainder split by _ongoing_reps_for_cue)
+# With TRIALS_PER_BLOCK=42 and k=1 → 6 PM + 36 ongoing → exactly 6 ongoing per cue.
 PM_TRIALS_PER_CUE_PER_BLOCK_DEFAULT = 1
 PM_TRIALS_PER_CUE_PER_BLOCK = PM_TRIALS_PER_CUE_PER_BLOCK_DEFAULT
 PM_TRIALS_PER_BLOCK = N_CUE_CONDITIONS * PM_TRIALS_PER_CUE_PER_BLOCK
@@ -1574,7 +1581,7 @@ def get_session_display_config(session: int) -> dict:
 
 
 def get_session_trial_config(session: int) -> dict:
-    """Block count and main trials per block (CCRP-matched for practice; 9×44 from session 6)."""
+    """Block count and main trials per block (CCRP-matched for practice; 9×42 from session 6)."""
     if session <= N_PRACTICE_SESSIONS:
         base = PRACTICE_SESSION_TRIAL_CONFIG.get(
             session,
