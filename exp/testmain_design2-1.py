@@ -90,9 +90,9 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v3.0-2026-09-18"
-EXPERIMENT_NAME = "PMCP"
-EXPERIMENT_NUMBER = 1002
+CODE_VERSION = "v3.0.1"
+EXPERIMENT_NAME = "PMCP2-1"
+EXPERIMENT_NUMBER = 1003
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
 PARTICIPANT_COLOR_KEY_MAPPING_PATH = EXP_DIR / "participant_color_key_mapping.csv"
 
