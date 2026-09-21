@@ -1,0 +1,29 @@
+PRACTICE BLOCK
+
+In the previous part, the special task was to respond when a circle had a DASHED WHITE OUTLINE. In this new part, the special task is different.
+
+You will first practice this in a short block before the main part of today's session.
+
+Keep your left hand on the left half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys. When a special-task trial appears, respond using only your LEFT INDEX FINGER.
+
+SPECIAL TASK: On some trials, one circle will show an ORANGE RING on its border (the circle keeps its normal red, blue, or green color). When you see an ORANGE RING, press the key under your LEFT INDEX FINGER instead of a right-hand color key.
+
+Keep your right hand on the right half of the response box, with all five fingers resting lightly on the keys. Do not lift or move your fingers from the keys.
+
+ONGOING TASK (same as before): Choose the circle with the highest reward digit using your right index, middle, and ring fingers:
+
+{COLOR_FINGER_LINE}
+
+During this practice block, the color-key mapping will NOT be shown on the screen. Use what you have learned.
+
+When this practice block ends, you will see the full instructions before the main blocks begin.
+
+__________
+
+In summary, continue the main color-choice task as before, while also watching for the new special task: when you see an ORANGE RING, press the key under your LEFT INDEX FINGER instead of a right-hand color key.
+
+__________
+
+See the example below: left = a normal trial; right = a special-task trial.
+
+Press *space* to begin the practice block.

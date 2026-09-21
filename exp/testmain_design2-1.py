@@ -67,9 +67,9 @@ DEBUG_CONFIG = {
 DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
-# Focal PM cue: "center_ring" (original orange outline) or "center_disk"
+# Focal PM cue: "center_ring" (original orange circle on the colored disk) or "center_disk"
 # (orange middle band; outer rim stays the task color, white center stays for the reward).
-FOCAL_PM_STYLE = "center_disk"
+FOCAL_PM_STYLE = "center_ring"
 # Nonfocal PM cue: "dashed_outline" (original dashed white border) or "center_x"
 # (small circle in the white center on every disk; the PM target replaces it with a triangle).
 NONFOCAL_PM_STYLE = "center_x"
@@ -3168,7 +3168,7 @@ def draw_pm_instruction_examples(pm_kind: str):
         right, color_name="blue", reward_value=3, pm_kind=pm_kind
     )
     left_label = "Normal" if pm_kind == "focal" else "Normal (circle)"
-    right_label = "Focal PM (orange band)" if pm_kind == "focal" else "Nonfocal PM (triangle)"
+    right_label = "Focal PM (orange circle)" if pm_kind == "focal" else "Nonfocal PM (triangle)"
     for text, x in ((left_label, left[0]), (right_label, right[0])):
         visual.TextStim(
             win,

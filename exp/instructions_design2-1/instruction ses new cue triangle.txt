@@ -1,6 +1,6 @@
 You have completed the previous part of the experiment. A new part is beginning.
 
-In the previous part, the special task was to respond when a circle showed an ORANGE BAND in the middle of one circle. In this new part, the special task is different.
+In the previous part, the special task was to respond when a circle showed an ORANGE RING on its border. In this new part, the special task is different.
 
 SPECIAL TASK (different from the previous part): In addition to choosing the circle with the highest reward digit, there is sometimes a second response you must make.
 

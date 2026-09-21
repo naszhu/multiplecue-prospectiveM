@@ -1,6 +1,6 @@
 Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del.
 
-I den forrige del bestod den særlige opgave i at reagere, når en cirkel havde en ORANGE BAND langs kanten. I denne nye del er den særlige opgave en anden.
+I den forrige del bestod den særlige opgave i at reagere, når en cirkel havde en ORANGE RING langs kanten. I denne nye del er den særlige opgave en anden.
 
 SÆRLIG OPGAVE (anderledes end i den forrige del): Ud over at vælge cirklen med det højeste belønningsciffer skal du nogle gange løse en anden opgave.
 
