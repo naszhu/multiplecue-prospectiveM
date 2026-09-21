@@ -151,7 +151,7 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v3.0.1"
+CODE_VERSION = "v3.1.0"
 EXPERIMENT_NAME = "PMCP2-1"
 EXPERIMENT_NUMBER = 1003
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -179,7 +179,7 @@ REPEAT_DATA_NOTE = ""
 REPEAT_REASON = ""
 DATA_FILE_STEM = ""
 START_FROM_BLOCK = 0
-RESUME_APPEND_EXISTING = False
+RESUME_NEW_FILE = False
 AGE = "NA"
 GENDER = "NA"
 PARTICIPATION_DAY = 1
@@ -566,7 +566,8 @@ def _list_session_trial_csvs(participant: str, out_dir: Path) -> list[tuple[int,
     if not out_dir.is_dir():
         return []
     pattern = re.compile(
-        rf"^PMCP_subj{re.escape(str(participant))}_ses(\d+)(?:\(\d+\))?_trials\.csv$"
+        rf"^PMCP_subj{re.escape(str(participant))}_ses(\d+)"
+        rf"(?:\(\d+\))?(?:_resume\d+)?_trials\.csv$"
     )
     found: list[tuple[int, Path]] = []
     for path in out_dir.iterdir():
@@ -656,7 +657,13 @@ def _analyze_trials_csv_progress(trials_path: Path, session: int) -> dict:
         if counts[-1] < expected:
             return unfinished(-1, "PM practice", 0)
 
-    for block in range(1, n_main + 1):
+    first_main_block = 1
+    if re.search(r"_resume\d+_trials\.csv$", trials_path.name):
+        saved_main_blocks = [block for block in counts if block >= 1]
+        if saved_main_blocks:
+            first_main_block = min(saved_main_blocks)
+
+    for block in range(first_main_block, n_main + 1):
         expected = _expected_trials_for_saved_block(session, block)
         got = counts.get(block, 0)
         if got < expected:
@@ -705,24 +712,30 @@ def _detect_session_resume(participant: str, out_dir: Path) -> dict:
     }
 
 
-def _load_resume_csv_state(trials_path: Path) -> tuple[int, float, list[str]]:
-    """Return (next trial_index, last CumReward, CSV columns) for appending."""
-    with open(trials_path, encoding="utf-8", newline="") as fp:
-        reader = csv.DictReader(fp)
-        fieldnames = list(reader.fieldnames or [])
-        last_trial_n = 0
-        last_cum = 0.0
-        for row in reader:
-            try:
-                last_trial_n = max(last_trial_n, int(row.get("Trial") or 0))
-            except (TypeError, ValueError):
-                pass
-            if _is_saved_task_row(row):
-                try:
-                    last_cum = float(row.get("CumReward") or 0.0)
-                except (TypeError, ValueError):
-                    pass
-    return last_trial_n, last_cum, fieldnames
+def _resume_root_stem(trials_path: Path) -> str:
+    stem = trials_path.name[: -len("_trials.csv")]
+    return re.sub(r"_resume\d+$", "", stem)
+
+
+def _resume_segment_number(trials_path: Path) -> int:
+    stem = trials_path.name[: -len("_trials.csv")]
+    match = re.search(r"_resume(\d+)$", stem)
+    return int(match.group(1)) if match else 1
+
+
+def _next_resume_output_paths(
+    out_dir: Path, parent_trials_path: Path
+) -> tuple[Path, Path, str, int]:
+    """Return unused resume paths without modifying the parent data file."""
+    root_stem = _resume_root_stem(parent_trials_path)
+    segment = max(2, _resume_segment_number(parent_trials_path) + 1)
+    while True:
+        stem = f"{root_stem}_resume{segment}"
+        trials_path = (out_dir / f"{stem}_trials.csv").resolve()
+        metadata_path = (out_dir / f"{stem}_metadata.json").resolve()
+        if not trials_path.exists() and not metadata_path.exists():
+            return trials_path, metadata_path, stem, segment
+        segment += 1
 
 
 def _suggested_next_session(participant: str, out_dir: Path) -> int:
@@ -816,20 +829,22 @@ def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -
 
 
 def _resolve_data_output_paths(
-    participant: str, session: int, out_dir: Path, *, resume_append: bool = False
+    participant: str,
+    session: int,
+    out_dir: Path,
+    *,
+    resume_parent: Path | None = None,
 ) -> tuple[Path, Path, str, str, str]:
-    """Return trials path, metadata path, file stem, repeat note, repeat reason (empty if not repeat)."""
+    """Resolve new output paths for a normal, repeated, or resumed run."""
     base_stem = f"PMCP_subj{participant}_ses{session}"
     trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
     metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
 
-    if resume_append:
-        existing = _latest_trials_csv_for_session(participant, session, out_dir)
-        if existing is not None:
-            stem = existing.name[: -len("_trials.csv")]
-            meta = (out_dir / f"{stem}_metadata.json").resolve()
-            return existing.resolve(), meta, stem, "", ""
-        return trials_path, metadata_path, base_stem, "", ""
+    if resume_parent is not None:
+        resume_trials, resume_meta, stem, _segment = _next_resume_output_paths(
+            out_dir, resume_parent
+        )
+        return resume_trials, resume_meta, stem, "", ""
 
     if not trials_path.exists() and not metadata_path.exists():
         return trials_path, metadata_path, base_stem, "", ""
@@ -1617,7 +1632,8 @@ def _build_metadata(
             "pm_reward_points": PM_REWARD,
             "pm_key": PM_KEY,
             "start_from_block": START_FROM_BLOCK,
-            "resume_append_existing": bool(RESUME_APPEND_EXISTING),
+            "resume_append_existing": False,
+            "resume_saved_as_new_file": bool(RESUME_NEW_FILE),
             "blocks": n_blocks,
             "main_trials_per_block": n_trials_per_block,
             "total_trials": n_trials_total,
@@ -2927,10 +2943,10 @@ if _unexpected_session_log_note:
 
 PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 _resume_existing = _latest_trials_csv_for_session(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
-RESUME_APPEND_EXISTING = False
+RESUME_NEW_FILE = False
 if START_FROM_BLOCK >= 1 and _resume_existing is not None:
     _existing_progress = _analyze_trials_csv_progress(_resume_existing, SESSION)
-    RESUME_APPEND_EXISTING = bool(_existing_progress["incomplete"])
+    RESUME_NEW_FILE = bool(_existing_progress["incomplete"])
 (
     _out_trials_path,
     _out_metadata_path,
@@ -2938,7 +2954,10 @@ if START_FROM_BLOCK >= 1 and _resume_existing is not None:
     REPEAT_DATA_NOTE,
     REPEAT_REASON,
 ) = _resolve_data_output_paths(
-    PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR, resume_append=RESUME_APPEND_EXISTING
+    PARTICIPANT,
+    SESSION,
+    PARTICIPANT_DATA_DIR,
+    resume_parent=_resume_existing if RESUME_NEW_FILE else None,
 )
 if REPEAT_REASON:
     _SESSION_START_LOG_EXTRAS.append(f"  Repeated run reason: {REPEAT_REASON}")
@@ -2946,7 +2965,7 @@ _SESSION_START_LOG_EXTRAS.append(f"  Output files: {DATA_FILE_STEM}_trials.csv, 
 if START_FROM_BLOCK >= 1:
     _SESSION_START_LOG_EXTRAS.append(
         f"  Start from block {START_FROM_BLOCK} "
-        f"(skipping earlier blocks{'; appending to existing session file' if RESUME_APPEND_EXISTING else ''})"
+        f"(skipping earlier blocks{'; saving a new continuation file' if RESUME_NEW_FILE else ''})"
     )
 if os.environ.get(_IDLE_INHIBITOR_ENV) == "1":
     _SESSION_START_LOG_EXTRAS.append("  GNOME idle/suspend inhibited via gnome-session-inhibit.")
@@ -4419,22 +4438,6 @@ exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
-if RESUME_APPEND_EXISTING and _out_trials_path.exists():
-    try:
-        trial_index, cum_reward, csv_columns = _load_resume_csv_state(_out_trials_path)
-        if csv_columns:
-            first_trial_save = False
-        _SESSION_START_LOG_EXTRAS.append(
-            f"  Resuming CSV after Trial {trial_index}, CumReward={cum_reward:.2f}."
-        )
-    except Exception as exc:
-        first_trial_save = True
-        csv_columns = None
-        trial_index = 0
-        cum_reward = 0.0
-        _SESSION_START_LOG_EXTRAS.append(
-            f"  WARNING: could not append to existing trials CSV ({exc}); writing a new file."
-        )
 _response_device_log = f"  Response device: {RESPONSE_DEVICE}; device name: {DEVICE_NAME}"
 if simulate_response_box:
     _response_device_log += " (SRB simulated with keyboard)"
