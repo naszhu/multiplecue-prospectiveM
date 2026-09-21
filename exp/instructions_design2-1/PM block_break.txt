@@ -1,0 +1,5 @@
+End of Block {prev_block}.
+
+Next: Block {next_block} of {n_blocks}.
+
+Press SPACE to continue.

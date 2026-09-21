@@ -1,0 +1,23 @@
+Du har afsluttet den forrige del af eksperimentet. Nu begynder en ny del, og opgaven bliver lidt anderledes.
+
+SÆRLIG OPGAVE: Ud over at vælge cirklen med det højeste belønningsciffer skal du nogle gange løse en anden opgave.
+
+I nogle forsøgsrunder får én af cirklerne en ORANGE RING langs kanten (cirklen beholder sin normale røde, blå eller grønne farve). Når du ser en ORANGE RING, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd. Et korrekt svar giver 5 bonuspoint.
+
+__________
+
+LØBENDE OPGAVE (samme som før):
+
+Der kan vises tre farvede cirkler med et eller to belønningscifre. Vælg cirklen med den højeste belønning:
+
+{COLOR_KEY_LINE}
+
+Farve-tast-tilknytningen vises ikke på skærmen under eksperimentet.
+
+__________
+
+Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med den særlige opgave: når du ser en ORANGE RING, skal du trykke C med VENSTRE LANGFINGER i stedet for en farvetast med højre hånd.
+
+__________
+
+Tryk på *space* for at begynde.

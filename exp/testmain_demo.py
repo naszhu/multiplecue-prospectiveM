@@ -16,6 +16,11 @@ from datetime import datetime
 from itertools import permutations
 from pathlib import Path
 
+try:
+    import termios
+except ImportError:  # Not available on Windows.
+    termios = None
+
 from psychopy import gui, visual, core, event, monitors
 
 try:
@@ -75,7 +80,7 @@ def _debug_fast_wait() -> None:
     core.wait(_debug_wait_s())
 
 
-CODE_VERSION = "v2-2026-08-19"
+CODE_VERSION = "v2.2-2026-09-21"
 EXPERIMENT_NAME = "PMCP"
 EXPERIMENT_NUMBER = 1002
 DATA_OUT_DIR = (EXP_DIR / "data_written").resolve()
@@ -354,6 +359,37 @@ def _append_session_log(log_path: Path, lines: list[str]) -> None:
             f.write(line + "\n")
 
 
+_SESSION_INTERRUPT_REASONS: list[str] = []
+
+
+def _note_session_interrupt(reason: str) -> None:
+    reason = reason.strip()
+    if reason and reason not in _SESSION_INTERRUPT_REASONS:
+        _SESSION_INTERRUPT_REASONS.append(reason)
+
+
+def _log_trial_problems_if_any(
+    log_path: Path,
+    *,
+    trial_number: int,
+    sync_ok: int | str,
+    srb_connection_ok: int,
+    too_fast: bool,
+    rt_ms: float | None,
+) -> None:
+    """Log SyncOK / SRBConnectionOK / TooFastRT only when there is a problem."""
+    problems: list[str] = []
+    if sync_ok in (0, ""):
+        problems.append(f"SyncOK={sync_ok!r}")
+    if srb_connection_ok == 0:
+        problems.append("SRBConnectionOK=0")
+    if too_fast:
+        rt_part = f" (RT={rt_ms:.0f}ms)" if rt_ms is not None else ""
+        problems.append(f"TooFastRT=1{rt_part}")
+    if problems:
+        _append_session_log(log_path, [f"  Trial {trial_number}: {', '.join(problems)}"])
+
+
 def _max_completed_session(participant: str, out_dir: Path) -> int | None:
     """Highest session number found for this participant, or None."""
     prefix = f"PMCP_subj{participant}_ses"
@@ -446,10 +482,10 @@ def _load_last_session_demographics(participant: str, out_dir: Path) -> dict:
     }
 
 
-def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> None:
+def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -> str | None:
     expected = _suggested_next_session(participant, out_dir)
     if session == expected:
-        return
+        return None
     if not _tk_yes_no(
         "Confirm session number",
         (
@@ -458,6 +494,7 @@ def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -
         ),
     ):
         raise SystemExit("Session confirmation cancelled.")
+    return f"Unexpected session number confirmed: entered {session}, expected {expected}."
 
 
 def _resolve_data_output_paths(
@@ -496,15 +533,193 @@ def _resolve_data_output_paths(
         suffix_n += 1
 
 
+def _srb_port_candidates() -> list[str]:
+    """USB serial ports that might host a self-made box (exclude Cedrus FTDI)."""
+    if list_ports is None:
+        return []
+    return [
+        port.device
+        for port in list_ports.comports()
+        if not (port.vid == CEDRUS_VID and port.pid == CEDRUS_PID)
+        and port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB"))
+    ]
+
+
+def _srb_ports_to_try() -> list[str]:
+    """Prefer auto-detected port, then rescan, then legacy fallback."""
+    ports: list[str] = []
+    detected = globals().get("_srb_detected_port")
+    if detected:
+        ports.append(detected)
+    for port_name in _srb_port_candidates():
+        if port_name not in ports:
+            ports.append(port_name)
+    if "/dev/ttyACM0" not in ports:
+        ports.append("/dev/ttyACM0")
+    return ports
+
+
 def _find_self_made_response_box_port() -> str:
     """Find the self-made box serial port (skip Cedrus FTDI devices)."""
-    if list_ports is not None:
-        for port in list_ports.comports():
-            if port.vid == CEDRUS_VID and port.pid == CEDRUS_PID:
+    ports = _srb_ports_to_try()
+    return ports[0] if ports else "/dev/ttyACM0"
+
+
+def _srb_serial_errors():
+    """Exceptions raised by pyserial and its Linux termios backend."""
+    errors: tuple[type[BaseException], ...] = (OSError,)
+    if serial is not None:
+        errors = errors + (serial.SerialException,)
+    # pyserial 3.5 can let termios.error escape from tcflush/tcdrain on Linux.
+    # Despite carrying an errno, termios.error is not an OSError subclass.
+    if termios is not None:
+        errors = errors + (termios.error,)
+    return errors
+
+
+def _srb_close(box) -> None:
+    if box is None:
+        return
+    try:
+        if getattr(box, "is_open", False):
+            box.close()
+    except _srb_serial_errors():
+        pass
+
+
+def _srb_open(port_name: str | None = None) -> tuple[object | None, str | None, str | None]:
+    """Open SRB connection. Returns (box, port_used, error_message)."""
+    if serial is None:
+        return None, None, "pyserial not available"
+
+    ports = [port_name] if port_name else _srb_ports_to_try()
+    last_error = "no candidate ports"
+    for candidate in ports:
+        if not candidate:
+            continue
+        box = None
+        try:
+            box = serial.Serial(candidate, baudrate=SELF_MADE_BAUDRATE, timeout=0.001)
+            time.sleep(2.0)
+            box.reset_input_buffer()
+            return box, candidate, None
+        except _srb_serial_errors() as exc:
+            _srb_close(box)
+            last_error = f"{candidate}: {type(exc).__name__}: {exc}"
+    return None, None, last_error
+
+
+def _srb_log_warning(log_path, message: str) -> None:
+    print(f"WARNING: {message}")
+    if log_path is not None:
+        _append_session_log(log_path, [f"  WARNING: {message}"])
+
+
+def _srb_reconnect(log_path, context: str) -> tuple[object | None, str | None]:
+    """Close the current handle and try to reopen. Returns (box, error_message)."""
+    global serial_response_box, _srb_active_port
+
+    _srb_close(serial_response_box)
+    serial_response_box = None
+    _srb_active_port = None
+
+    box, port_name, err = _srb_open()
+    if box is not None:
+        serial_response_box = box
+        _srb_active_port = port_name
+        _srb_log_warning(log_path, f"SRB reconnected on {port_name} ({context})")
+        return box, None
+
+    msg = f"SRB reconnect failed ({context}): {err}"
+    _srb_log_warning(log_path, msg)
+    return None, msg
+
+
+def _srb_prepare_trial(
+    box, log_path, trial_number: int
+) -> tuple[object | None, int | None, int, str]:
+    """Reset input, send sync, read ack.
+
+    Returns (box, sync_ok, connection_ok, error_note).
+    sync_ok: 1=A received, 0=S sent but bad/missing ack, None=sync not attempted.
+    connection_ok: 0=serial I/O failure, 1=port responded.
+    """
+    try:
+        box.reset_input_buffer()
+        box.write(b"S")
+        box.flush()
+        ack = box.read(1)
+        if ack != b"A":
+            note = f"no_ack trial {trial_number} (got {ack!r})"
+            _srb_log_warning(log_path, f"SRB sync ack missing: {note}")
+            return box, 0, 1, note
+        return box, 1, 1, ""
+    except _srb_serial_errors() as exc:
+        note = f"srb_serial_error trial {trial_number}: {type(exc).__name__}: {exc}"
+        _srb_log_warning(log_path, note)
+        new_box, reconnect_err = _srb_reconnect(log_path, f"trial {trial_number} prep")
+        if new_box is None:
+            combined = " | ".join(p for p in [note, reconnect_err] if p)
+            return None, None, 0, combined
+        try:
+            new_box.reset_input_buffer()
+            new_box.write(b"S")
+            new_box.flush()
+            ack = new_box.read(1)
+            if ack != b"A":
+                retry_note = f"no_ack after reconnect trial {trial_number} (got {ack!r})"
+                _srb_log_warning(log_path, f"SRB sync ack missing: {retry_note}")
+                return new_box, 0, 1, " | ".join(p for p in [note, retry_note] if p)
+            return new_box, 1, 1, note
+        except _srb_serial_errors() as retry_exc:
+            retry_note = (
+                f"srb_serial_error after reconnect trial {trial_number}: "
+                f"{type(retry_exc).__name__}: {retry_exc}"
+            )
+            _srb_log_warning(log_path, retry_note)
+            _srb_close(new_box)
+            return None, None, 0, " | ".join(p for p in [note, retry_note] if p)
+
+
+def _wait_for_self_made_response_box(box, clock, max_wait, log_path, trial_number: int):
+    """Wait for a pin press; return ((pin_or_escape, computer_time, device_rt_ms) or None, error_note)."""
+    buffer = ""
+    start = clock.getTime()
+
+    while clock.getTime() - start < max_wait:
+        escape_keys = event.getKeys(keyList=[QUIT_KEY], timeStamped=clock)
+        if escape_keys:
+            return (QUIT_KEY, escape_keys[0][1], 0.0), ""
+
+        try:
+            buffer += box.read(box.in_waiting or 1).decode("ascii", errors="ignore")
+        except _srb_serial_errors() as exc:
+            note = (
+                f"srb_serial_error trial {trial_number} during read: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            _srb_log_warning(log_path, note)
+            return None, note
+
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            parts = line.strip().split(",")
+            if len(parts) != 2:
                 continue
-            if port.device.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
-                return port.device
-    return "/dev/ttyACM0"
+
+            pin, latency_us = parts
+            if pin in SELF_MADE_PIN_TO_KEY:
+                try:
+                    device_rt_ms = float(latency_us) / 1000
+                except ValueError:
+                    _srb_log_warning(
+                        log_path,
+                        f"SRB malformed response trial {trial_number}: {line!r}",
+                    )
+                    continue
+                return (pin, clock.getTime(), device_rt_ms), ""
+
+    return None, ""
 
 
 def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
@@ -515,6 +730,7 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
     """
     if serial is None:
         return None, None
+    box = None
     try:
         box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.5)
         time.sleep(2.0)
@@ -522,7 +738,6 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
         box.write(b"I")
         box.flush()
         reply = box.readline().decode("ascii", errors="ignore").strip()
-        box.close()
         if not reply:
             return None, None
         parts = reply.split(",")
@@ -533,6 +748,8 @@ def _query_srb_identity(port_name: str) -> tuple[str | None, str | None]:
         return device_name, firmware_version
     except Exception:
         return None, None
+    finally:
+        _srb_close(box)
 
 
 def _auto_detect_srb_device() -> tuple[str | None, str | None, str | None, str | None]:
@@ -564,43 +781,6 @@ def _auto_detect_srb_device() -> tuple[str | None, str | None, str | None, str |
         f"SRB on {candidates[0]} did not respond to identity query; "
         "firmware may not support 'I' command"
     )
-
-
-def _open_self_made_response_box():
-    if serial is None:
-        raise SystemExit("pyserial is required for self-made-response-box.")
-
-    port_name = _find_self_made_response_box_port()
-    box = serial.Serial(port_name, baudrate=SELF_MADE_BAUDRATE, timeout=0.001)
-    time.sleep(2.0)
-    box.reset_input_buffer()
-    print(f"Using {RESPONSE_DEVICE_SELF_MADE} on {port_name}.")
-    return box
-
-
-def _wait_for_self_made_response_box(box, clock, max_wait):
-    """Wait for a pin press; return (pin_or_escape, computer_time, device_rt_ms) or None."""
-    buffer = ""
-    start = clock.getTime()
-
-    while clock.getTime() - start < max_wait:
-        escape_keys = event.getKeys(keyList=[QUIT_KEY], timeStamped=clock)
-        if escape_keys:
-            return (QUIT_KEY, escape_keys[0][1], 0.0)
-
-        buffer += box.read(box.in_waiting or 1).decode("ascii", errors="ignore")
-
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            parts = line.strip().split(",")
-            if len(parts) != 2:
-                continue
-
-            pin, latency_us = parts
-            if pin in SELF_MADE_PIN_TO_KEY:
-                return (pin, clock.getTime(), float(latency_us) / 1000)
-
-    return None
 
 
 # Display / monitor (match multiplecue-responsebox/exp/testmain.py paradigm)
@@ -822,7 +1002,9 @@ def _build_trial_row(
     trial_wall_clock_str: str,
     session_elapsed_sec: float,
     trial_note: str = "",
-    sync_ok: int = 1,
+    sync_ok: int | str = 1,
+    srb_connection_ok: int = 1,
+    too_fast_rt: int = 0,
     srb_firmware_version: str = "",
 ) -> dict:
     """Build one CSV row matching CCRP columns plus PM fields."""
@@ -941,6 +1123,8 @@ def _build_trial_row(
         "SessionElapsedSec": round(session_elapsed_sec, 3),
         "SRBFirmwareVersion": srb_firmware_version,
         "SyncOK": sync_ok,
+        "SRBConnectionOK": srb_connection_ok,
+        "TooFastRT": too_fast_rt,
         "Note": trial_note,
         "TrialType": "task",
         "SurveyQuestion": "",
@@ -1012,11 +1196,25 @@ DAT_COLUMN_DESCRIPTIONS = {
         "(e.g. 'v1.1'). Empty for keyboard or Cedrus sessions, or if auto-detection was skipped."
     ),
     "SyncOK": (
-        "1 if the Arduino acknowledged the trial-start 'S' signal with 'A' (RT timing verified); "
-        "0 if no ack was received (RT may be from the wrong trial); "
-        "1 for keyboard trials (no Arduino sync needed)."
+        "1 if the Arduino acknowledged the trial-start 'S' signal with 'A'; "
+        "0 if 'S' was sent but no valid 'A' ack was received; "
+        "empty when SRBConnectionOK=0 (sync not attempted); "
+        "1 for keyboard or simulated response-box sessions."
     ),
-    "Note": "Free-text notes (e.g. repeat run reason on first trial); usually empty.",
+    "SRBConnectionOK": (
+        "1 if the self-made response box serial port was usable for this trial "
+        "(open, reset, write, read succeeded); "
+        "0 if a serial I/O error occurred; "
+        "1 for keyboard, Cedrus, or simulated response-box sessions."
+    ),
+    "TooFastRT": (
+        "1 if RTComputerClock < MIN_RT_MS (100 ms) and the response was not a timeout; "
+        "0 otherwise. Reward is zeroed on too-fast trials."
+    ),
+    "Note": (
+        "Session-level free text and per-trial serial error details only "
+        "(pipe-separated). Trial flags use SyncOK, SRBConnectionOK, and TooFastRT."
+    ),
     "TrialType": "'task' for ordinary trial rows; 'survey' for end-of-session survey rows.",
     "SurveyQuestion": (
         "End-of-session survey question number (1-5) for TrialType='survey' rows; empty otherwise."
@@ -1940,6 +2138,8 @@ _srb_detected_port: str | None = None
 _srb_detected_device_name: str | None = None
 _srb_detected_firmware: str | None = None
 _srb_detection_warning: str | None = None
+_srb_active_port: str | None = None
+serial_response_box = None
 
 if DEFAULT_RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and not DEBUG_CONFIG.get("simulate_response_box"):
     (
@@ -2178,9 +2378,11 @@ elif _srb_detected_device_name:
 
 # Post-dialog checks (order matters):
 # 1) unexpected session number, 2) repeated data for same participant+session
-_confirm_unexpected_session(
+_unexpected_session_log_note = _confirm_unexpected_session(
     PARTICIPANT, SESSION, _participant_data_dir(PARTICIPANT)
 )
+if _unexpected_session_log_note:
+    _SESSION_START_LOG_EXTRAS.append(f"  {_unexpected_session_log_note}")
 
 PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
 (
@@ -2190,6 +2392,9 @@ PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
     REPEAT_DATA_NOTE,
     REPEAT_REASON,
 ) = _resolve_data_output_paths(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
+if REPEAT_REASON:
+    _SESSION_START_LOG_EXTRAS.append(f"  Repeated run reason: {REPEAT_REASON}")
+_SESSION_START_LOG_EXTRAS.append(f"  Output files: {DATA_FILE_STEM}_trials.csv, {DATA_FILE_STEM}_metadata.json")
 
 SESSION_PHASE = session_phase_for(SESSION, PARTICIPANT)
 DISPLAY_CONFIG = get_session_display_config(SESSION)
@@ -2219,7 +2424,6 @@ for _t in trials:
 
 # print(json.dumps(trials, indent=2))  # full pre-designed session structure
 
-serial_response_box = None
 simulate_response_box = (
     DEBUG_CONFIG.get("simulate_response_box", False)
     and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
@@ -2241,7 +2445,20 @@ if RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
             f"{PM_KEY.upper()} for PM."
         )
     else:
-        serial_response_box = _open_self_made_response_box()
+        serial_response_box, _srb_active_port, open_err = _srb_open()
+        if serial_response_box is not None:
+            print(f"Using {RESPONSE_DEVICE_SELF_MADE} on {_srb_active_port}.")
+            _SESSION_START_LOG_EXTRAS.append(f"  SRB opened on {_srb_active_port}.")
+        else:
+            print(
+                f"WARNING: Could not open {RESPONSE_DEVICE_SELF_MADE}: {open_err}. "
+                "The session will pause for reconnect when the first trial needs the box."
+            )
+            _SESSION_START_LOG_EXTRAS.append(f"  SRB open failed: {open_err}")
+            if SRB_DETECTION_WARNING:
+                SRB_DETECTION_WARNING = f"{SRB_DETECTION_WARNING}; open failed: {open_err}"
+            else:
+                SRB_DETECTION_WARNING = f"open failed: {open_err}"
 
 
 # =============================================================================
@@ -2310,6 +2527,14 @@ win.setMouseVisible(False)
     DISPLAY_CHECK_SPEC_OK,
     DISPLAY_CHECK_MISMATCH_CONTINUED,
 ) = _run_startup_display_check(win)
+if not DISPLAY_CHECK_SPEC_OK:
+    _SESSION_START_LOG_EXTRAS.append(
+        "  Display check failed: "
+        f"expected {WIN_SIZE_PIX[0]}x{WIN_SIZE_PIX[1]} px / ~{EXPECTED_REFRESH_HZ} Hz; "
+        f"actual {ACTUAL_WIN_SIZE_PIX[0]}x{ACTUAL_WIN_SIZE_PIX[1]} px / "
+        f"{MEASURED_REFRESH_RATE:.2f} Hz; "
+        f"continued anyway={'yes' if DISPLAY_CHECK_MISMATCH_CONTINUED else 'no'}"
+    )
 
 fixation = visual.TextStim(
     win,
@@ -2387,6 +2612,15 @@ esc_confirm_text = visual.TextStim(
     color=FEEDBACK_TEXT_COLOR,
     colorSpace=COLOR_SPACE,
     height=INSTRUCTION_LETTER_SIZE_DEG,
+    units=USE_UNITS,
+)
+srb_reconnect_text = visual.TextStim(
+    win,
+    text="",
+    color=FEEDBACK_TEXT_COLOR,
+    colorSpace=COLOR_SPACE,
+    height=FEEDBACK_LETTER_SIZE_DEG,
+    wrapWidth=INSTRUCTION_WRAP_WIDTH_DEG,
     units=USE_UNITS,
 )
 block_break_text = visual.TextStim(
@@ -2590,6 +2824,42 @@ def _wait_space_or_exit(redraw_stim=None, *, allow_experimenter_skip: bool = Fal
         if redraw_stim is not None:
             redraw_stim.draw()
             win.flip()
+
+
+def _srb_reconnect_prompt_text(detail: str) -> str:
+    detail = (detail or "Unknown serial error.").strip()
+    return (
+        "Response box disconnected or not responding.\n\n"
+        "Please check the USB cable and reconnect the response box.\n\n"
+        "Press SPACE when the box is reconnected and ready to continue.\n"
+        "Press ESC to exit the session.\n\n"
+        f"Last error:\n{detail}"
+    )
+
+
+def _wait_for_srb_reconnect(log_path, detail: str, context: str) -> bool:
+    """Show reconnect instructions until SRB reconnect succeeds. Returns False if user exits."""
+    last_detail = detail or "Could not connect to the response box."
+    _srb_log_warning(log_path, f"SRB paused for reconnect ({context}): {last_detail}")
+
+    while True:
+        srb_reconnect_text.setText(_srb_reconnect_prompt_text(last_detail))
+        srb_reconnect_text.draw()
+        win.flip()
+        keys = event.waitKeys(keyList=[START_KEY, QUIT_KEY], maxWait=0.5)
+        if not keys:
+            continue
+        if keys[0] == QUIT_KEY:
+            if _confirm_exit_or_continue():
+                return False
+            continue
+        if keys[0] != START_KEY:
+            continue
+
+        box, reconnect_err = _srb_reconnect(log_path, context)
+        if box is not None:
+            return True
+        last_detail = reconnect_err or "Reconnect failed."
 
 
 def _set_instruction_display(
@@ -3092,7 +3362,9 @@ def _build_survey_row(
         "TrialWallClockTime": trial_wall_clock_str,
         "SessionElapsedSec": round(session_elapsed_sec, 3),
         "SRBFirmwareVersion": SRB_FIRMWARE_VERSION or "",
-        "SyncOK": 1,
+        "SyncOK": "",
+        "SRBConnectionOK": 1,
+        "TooFastRT": 0,
         "Note": note,
         "TrialType": "survey",
         "SurveyQuestion": survey_question,
@@ -3105,12 +3377,21 @@ def _append_survey_row(row: dict) -> None:
         writer.writerow(row)
 
 
-def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[int, bool]:
+def _run_end_of_session_survey(
+    *, trial_index: int, cum_reward: float, log_path: Path
+) -> tuple[int, bool]:
     """Ask the 5 end-of-session survey questions; append one CSV row per question.
 
     Returns (updated_trial_index, completed); completed is False if the
     participant quit partway through the survey.
     """
+    survey_log_lines: list[str] = []
+
+    def _choice_label(options: list[str], choice: str) -> str:
+        try:
+            return options[int(choice) - 1]
+        except (TypeError, ValueError, IndexError):
+            return choice
 
     def _record(question_number: int, response: str, note: str) -> int:
         now = datetime.now()
@@ -3128,11 +3409,18 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
         _append_survey_row(row)
         return trial_index + 1
 
+    def _log_survey_answer(question_label: str, answer: str, note: str = "") -> None:
+        line = f"  {question_label}: {answer}"
+        if note:
+            line += f" — {note}"
+        survey_log_lines.append(line)
+
     # Q1: room lighting change.
+    q1_options = ["Yes", "No", "I didn't notice / don't remember"]
     q1 = _collect_choice_response(
         "During this session, did the lighting in the experiment room change "
         "(for example, the light being turned on or off)?",
-        ["Yes", "No", "I didn't notice / don't remember"],
+        q1_options,
     )
     if q1 is None:
         return trial_index, False
@@ -3144,11 +3432,13 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
         if q1_note is None:
             return trial_index, False
     trial_index = _record(1, q1, q1_note)
+    _log_survey_answer("Q1 lighting change", _choice_label(q1_options, q1), q1_note)
 
     # Q2: interruption by someone in the room.
+    q2_options = ["Yes", "No"]
     q2 = _collect_choice_response(
         "Did anyone in the room interrupt or distract you during this session?",
-        ["Yes", "No"],
+        q2_options,
     )
     if q2 is None:
         return trial_index, False
@@ -3158,12 +3448,14 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
         if q2_note is None:
             return trial_index, False
     trial_index = _record(2, q2, q2_note)
+    _log_survey_answer("Q2 room interruption", _choice_label(q2_options, q2), q2_note)
 
     # Q3: tiredness or other outside influence (no penalty, framed for honesty).
+    q3_options = ["Yes", "No"]
     q3 = _collect_choice_response(
         "Were you tired, or affected by anything else, during this session?\n"
         "(There is no penalty for an honest answer -- it helps us interpret the data.)",
-        ["Yes", "No"],
+        q3_options,
     )
     if q3 is None:
         return trial_index, False
@@ -3173,6 +3465,7 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
         if q3_note is None:
             return trial_index, False
     trial_index = _record(3, q3, q3_note)
+    _log_survey_answer("Q3 tired or affected", _choice_label(q3_options, q3), q3_note)
 
     # Q4: strategy. Session 1 asks directly (no choice, response stays empty);
     # later sessions ask whether the strategy changed since last time.
@@ -3183,12 +3476,17 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
         if q4_note is None:
             return trial_index, False
         trial_index = _record(4, "", q4_note)
+        _log_survey_answer("Q4 strategy", q4_note or "(no answer)")
     else:
+        q4_options = [
+            "Yes, my strategy has changed.",
+            "No, I have not changed my strategy.",
+        ]
         q4 = _collect_choice_response(
             "Has your strategy for this task changed since your last session\n"
             "(for example, becoming more cautious, starting by looking at a\n"
             "particular color first, silently reading the color code to yourself, etc.)?",
-            ["Yes, my strategy has changed.", "No, I have not changed my strategy."],
+            q4_options,
         )
         if q4 is None:
             return trial_index, False
@@ -3198,24 +3496,28 @@ def _run_end_of_session_survey(*, trial_index: int, cum_reward: float) -> tuple[
             if q4_note is None:
                 return trial_index, False
         trial_index = _record(4, q4, q4_note)
+        _log_survey_answer("Q4 strategy change", _choice_label(q4_options, q4), q4_note)
 
     # Q5: automaticity of the color-key response (5-point Likert, no follow-up).
+    q5_options = [
+        "Completely automatic -- I don't need to remind myself at all.",
+        "Mostly automatic -- I rarely need to remind myself.",
+        "Somewhat automatic -- I sometimes need to remind myself.",
+        "Not very automatic -- I often need to remind myself.",
+        "Not automatic at all -- I need to remind myself almost every time.",
+    ]
     q5 = _collect_choice_response(
         "Do you feel that pressing the color key has become automatic, so that\n"
         "you no longer need to remind yourself (for example, by silently reading\n"
         "the color in your mind) before responding?",
-        [
-            "Completely automatic -- I don't need to remind myself at all.",
-            "Mostly automatic -- I rarely need to remind myself.",
-            "Somewhat automatic -- I sometimes need to remind myself.",
-            "Not very automatic -- I often need to remind myself.",
-            "Not automatic at all -- I need to remind myself almost every time.",
-        ],
+        q5_options,
     )
     if q5 is None:
         return trial_index, False
     trial_index = _record(5, q5, "")
+    _log_survey_answer("Q5 color-key automaticity", _choice_label(q5_options, q5))
 
+    _append_session_log(log_path, ["  Survey completed:"] + survey_log_lines)
     return trial_index, True
 
 
@@ -3254,6 +3556,22 @@ exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
+_response_device_log = f"  Response device: {RESPONSE_DEVICE}; device name: {DEVICE_NAME}"
+if simulate_response_box:
+    _response_device_log += " (SRB simulated with keyboard)"
+elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and _srb_active_port:
+    _response_device_log += f"; port: {_srb_active_port}"
+_SESSION_START_LOG_EXTRAS.append(_response_device_log)
+if _debug_enabled():
+    _SESSION_START_LOG_EXTRAS.append(
+        "  DEBUG mode enabled: "
+        f"auto_advance_trials={_debug_flag('auto_advance_trials')}, "
+        f"auto_advance_instructions={_debug_flag('auto_advance_instructions')}, "
+        f"skip_survey={_debug_flag('skip_survey')}, "
+        f"simulate_response_box={bool(DEBUG_CONFIG.get('simulate_response_box'))}, "
+        f"trial_duration={_debug_wait_s()}s, "
+        f"full_screen={bool(DEBUG_CONFIG.get('full_screen'))}"
+    )
 _append_session_log(_log_path, [
     f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} started.",
 ] + _SESSION_START_LOG_EXTRAS)
@@ -3277,14 +3595,17 @@ for trial in trials:
     if prev_block is not None and current_block != prev_block:
         if prev_block == PM_PRACTICE_BLOCK_NUMBER and current_block == 1:
             if not _show_session_instruction(SESSION, PARTICIPANT):
+                _note_session_interrupt("participant exited at session instruction after PM practice")
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == PM_PRACTICE_BLOCK_NUMBER:
             if not _show_pm_practice_instruction(SESSION, PARTICIPANT):
+                _note_session_interrupt("participant exited at PM practice instruction")
                 completed_normally = False
                 break
         elif prev_block == BURNIN_BLOCK_NUMBER and current_block == 1:
             if not _show_session_instruction(SESSION, PARTICIPANT):
+                _note_session_interrupt("participant exited at session instruction after burn-in")
                 completed_normally = False
                 break
         else:
@@ -3299,6 +3620,7 @@ for trial in trials:
             block_break_text.draw()
             win.flip()
             if not _wait_space_or_exit(redraw_stim=block_break_text):
+                _note_session_interrupt(f"participant exited during block break after block {prev_block}")
                 completed_normally = False
                 break
 
@@ -3405,37 +3727,111 @@ for trial in trials:
             if label is not None:
                 label.draw()
 
-    if serial_response_box is not None and not debug_auto_trial:
-        serial_response_box.reset_input_buffer()
-
     trial_clock.reset()
-    win.flip()
+    trial_sync_ok: int | str = 1  # S/A ack: 1=yes, 0=no, ""=not attempted
+    trial_srb_connection_ok = 1  # serial port usable: 1=yes, 0=I/O error
+    srb_error_note = ""
+    keys = None
+    srb_trial_aborted = False
     cue_time = trial_clock.getTime()
-    trial_sync_ok = 1  # 1 = confirmed; 0 = ack missing; keyboard always 1
-    if (
-        not debug_auto_trial
-        and RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE
-        and serial_response_box is not None
-    ):
-        serial_response_box.write(b"S")
-        serial_response_box.flush()
-        # Expect 'A' acknowledgement immediately (firmware sends it before starting timer)
-        _ack = serial_response_box.read(1)
-        if _ack != b"A":
-            trial_sync_ok = 0
-            _sync_warn = f"no_ack trial {trial_index + 1} (got {_ack!r})"
-            print(f"WARNING: SRB sync ack missing: {_sync_warn}")
-            _append_session_log(_log_path, [f"  WARNING: SRB sync ack missing: {_sync_warn}"])
 
     if debug_auto_trial:
+        win.flip()
+        cue_time = trial_clock.getTime()
         _debug_fast_wait()
         keys = [(_debug_auto_trial_key(trial), trial_clock.getTime())]
-    elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and serial_response_box is not None:
-        self_made_response = _wait_for_self_made_response_box(
-            serial_response_box, trial_clock, MAX_RESPONSE_TIME
+    elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE and simulate_response_box:
+        win.flip()
+        cue_time = trial_clock.getTime()
+        keys = event.waitKeys(
+            keyList=ALL_RESPONSE_KEYS,
+            maxWait=MAX_RESPONSE_TIME,
+            timeStamped=trial_clock,
         )
-        keys = [self_made_response] if self_made_response else None
+    elif RESPONSE_DEVICE == RESPONSE_DEVICE_SELF_MADE:
+        while True:
+            trial_sync_ok = 1
+            trial_srb_connection_ok = 1
+
+            if serial_response_box is None:
+                serial_response_box, reconnect_err = _srb_reconnect(
+                    _log_path, f"trial {trial_index + 1} open"
+                )
+                if serial_response_box is None:
+                    if not _wait_for_srb_reconnect(
+                        _log_path,
+                        reconnect_err or "Could not open response box.",
+                        f"trial {trial_index + 1} open",
+                    ):
+                        _note_session_interrupt(
+                            f"participant exited during SRB reconnect (trial {trial_index + 1} open)"
+                        )
+                        completed_normally = False
+                        srb_trial_aborted = True
+                        break
+                    continue
+
+            win.flip()
+            cue_time = trial_clock.getTime()
+
+            serial_response_box, prep_sync_ok, prep_connection_ok, prep_note = _srb_prepare_trial(
+                serial_response_box, _log_path, trial_index + 1
+            )
+            if prep_sync_ok is not None:
+                trial_sync_ok = prep_sync_ok
+            if prep_connection_ok == 0:
+                trial_srb_connection_ok = 0
+                if trial_sync_ok != 0:
+                    trial_sync_ok = ""
+            if prep_note:
+                srb_error_note = " | ".join(p for p in [srb_error_note, prep_note] if p)
+            if serial_response_box is None:
+                if not _wait_for_srb_reconnect(
+                    _log_path,
+                    prep_note or "Response box connection lost.",
+                    f"trial {trial_index + 1} prep",
+                ):
+                    _note_session_interrupt(
+                        f"participant exited during SRB reconnect (trial {trial_index + 1} prep)"
+                    )
+                    completed_normally = False
+                    srb_trial_aborted = True
+                    break
+                trial_clock.reset()
+                continue
+
+            self_made_response, wait_note = _wait_for_self_made_response_box(
+                serial_response_box, trial_clock, MAX_RESPONSE_TIME, _log_path, trial_index + 1
+            )
+            if wait_note:
+                srb_error_note = " | ".join(p for p in [srb_error_note, wait_note] if p)
+                trial_srb_connection_ok = 0
+                trial_sync_ok = ""
+                _srb_close(serial_response_box)
+                serial_response_box = None
+                _srb_active_port = None
+                if not _wait_for_srb_reconnect(
+                    _log_path,
+                    wait_note,
+                    f"trial {trial_index + 1} read",
+                ):
+                    _note_session_interrupt(
+                        f"participant exited during SRB reconnect (trial {trial_index + 1} read)"
+                    )
+                    completed_normally = False
+                    srb_trial_aborted = True
+                    break
+                trial_clock.reset()
+                continue
+
+            keys = [self_made_response] if self_made_response else None
+            break
+
+        if srb_trial_aborted:
+            break
     else:
+        win.flip()
+        cue_time = trial_clock.getTime()
         keys = event.waitKeys(
             keyList=ALL_RESPONSE_KEYS,
             maxWait=MAX_RESPONSE_TIME,
@@ -3455,6 +3851,7 @@ for trial in trials:
         response_time = keys[0][1]
         if pin_or_key == QUIT_KEY:
             if _confirm_exit_or_continue():
+                _note_session_interrupt(f"participant exited during trial {trial_index + 1}")
                 completed_normally = False
                 break
             prev_block = current_block
@@ -3554,6 +3951,14 @@ for trial in trials:
     )
     session_elapsed_sec = time.perf_counter() - session_start_perf
     position_to_color_id, position_to_reward = _trial_design_maps(trial)
+    _log_trial_problems_if_any(
+        _log_path,
+        trial_number=trial_index + 1,
+        sync_ok=trial_sync_ok,
+        srb_connection_ok=trial_srb_connection_ok,
+        too_fast=too_fast,
+        rt_ms=rt_computer_clock_ms,
+    )
     row = _build_trial_row(
         trial=trial,
         position_to_color_id=position_to_color_id,
@@ -3571,11 +3976,12 @@ for trial in trials:
         trial_wall_clock_str=trial_wall_clock_str,
         session_elapsed_sec=session_elapsed_sec,
         sync_ok=trial_sync_ok,
+        srb_connection_ok=trial_srb_connection_ok,
+        too_fast_rt=int(too_fast),
         srb_firmware_version=SRB_FIRMWARE_VERSION or "",
         trial_note=" | ".join(p for p in [
             "debug_auto_response" if debug_auto_trial else "",
-            "too_fast_rt" if too_fast else "",
-            "srb_sync_failed" if trial_sync_ok == 0 else "",
+            srb_error_note,
             REPEAT_DATA_NOTE if trial_index == 0 and REPEAT_DATA_NOTE else "",
             SPECIAL_SESSION_NOTE,
             f"srb_detection_warning: {SRB_DETECTION_WARNING}" if SRB_DETECTION_WARNING else "",
@@ -3619,11 +4025,13 @@ for trial in trials:
 if completed_normally:
     if _debug_flag("skip_survey"):
         _survey_completed = True
+        _append_session_log(_log_path, ["  Survey skipped (debug)."])
     else:
         trial_index, _survey_completed = _run_end_of_session_survey(
-            trial_index=trial_index, cum_reward=cum_reward
+            trial_index=trial_index, cum_reward=cum_reward, log_path=_log_path
         )
     if not _survey_completed:
+        _note_session_interrupt("participant exited during end-of-session survey")
         completed_normally = False
 
 if completed_normally:
@@ -3635,11 +4043,13 @@ if completed_normally:
         event.waitKeys()
 
 _end_status = "completed normally" if completed_normally else "interrupted"
-_append_session_log(_log_path, [
+_end_log_lines = [
     f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  Session {SESSION} ended ({_end_status}).",
-])
+]
+if _SESSION_INTERRUPT_REASONS:
+    _end_log_lines.append(f"  Interrupt reason(s): {'; '.join(_SESSION_INTERRUPT_REASONS)}")
+_append_session_log(_log_path, _end_log_lines)
 
 win.close()
-if serial_response_box is not None:
-    serial_response_box.close()
+_srb_close(serial_response_box)
 core.quit()

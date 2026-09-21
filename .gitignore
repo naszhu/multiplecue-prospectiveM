@@ -2,11 +2,10 @@ exp/__pycache__/
 *.pyc
 
 exp/data_written/
+exp/data_from_lab/
 
-exp/data_from_lab/*.csv
-exp/data_from_lab/*.json
-exp/data_from_lab/**/*.csv
-exp/data_from_lab/**/*.json
+analysis/fig/
+model/fig/
+model/figs/
 
-analysis/fig/*.png
-analysis/fig/**/*.png
+*.docx
