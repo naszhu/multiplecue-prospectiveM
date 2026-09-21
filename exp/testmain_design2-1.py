@@ -7,6 +7,52 @@ Trial design is fully pre-assigned before the experiment starts.
 Supports keyboard or self-made serial response box.
 """
 
+import os
+import shutil
+import sys
+
+_IDLE_INHIBITOR_ENV = "PMCP_IDLE_INHIBITOR_ACTIVE"
+
+
+def _run_with_linux_idle_inhibited() -> None:
+    """Relaunch this experiment with GNOME idle/suspend inhibition."""
+    if not sys.platform.startswith("linux"):
+        return
+
+    # The relaunched copy receives this flag, preventing infinite relaunching.
+    if os.environ.get(_IDLE_INHIBITOR_ENV) == "1":
+        return
+
+    inhibitor = shutil.which("gnome-session-inhibit")
+    if inhibitor is None:
+        print(
+            "WARNING: gnome-session-inhibit was not found. "
+            "Screen locking and blanking are not inhibited."
+        )
+        return
+
+    env = os.environ.copy()
+    env[_IDLE_INHIBITOR_ENV] = "1"
+
+    command = [
+        inhibitor,
+        "--app-id",
+        "org.pmcp.experiment",
+        "--reason",
+        "PMCP experiment in progress",
+        "--inhibit",
+        "idle:suspend",
+        sys.executable,
+        os.path.abspath(__file__),
+        *sys.argv[1:],
+    ]
+
+    os.execvpe(inhibitor, command, env)
+
+
+if __name__ == "__main__":
+    _run_with_linux_idle_inhibited()
+
 import csv
 import json
 import math
@@ -2902,6 +2948,8 @@ if START_FROM_BLOCK >= 1:
         f"  Start from block {START_FROM_BLOCK} "
         f"(skipping earlier blocks{'; appending to existing session file' if RESUME_APPEND_EXISTING else ''})"
     )
+if os.environ.get(_IDLE_INHIBITOR_ENV) == "1":
+    _SESSION_START_LOG_EXTRAS.append("  GNOME idle/suspend inhibited via gnome-session-inhibit.")
 _SESSION_START_LOG_EXTRAS.append(f"  Focal PM style: {FOCAL_PM_STYLE}")
 _SESSION_START_LOG_EXTRAS.append(f"  Nonfocal PM style: {NONFOCAL_PM_STYLE}")
 if PARTICIPANT == "test":
@@ -3065,6 +3113,8 @@ mon.setDistance(MONITOR_DISTANCE_CM)
 win = visual.Window(
     size=WIN_SIZE_PIX,
     fullscr=DEBUG_CONFIG["full_screen"],
+    allowGUI=False,
+    winType="pyglet",
     units=USE_UNITS,
     color=BACKGROUND_COLOR,
     colorSpace=COLOR_SPACE,
@@ -3519,37 +3569,96 @@ def _poll_experimenter_burnin_skip() -> bool:
     )
 
 
-def _wait_space_or_exit(redraw_stim=None, *, allow_experimenter_skip: bool = False):
+def _window_has_focus() -> bool | None:
+    """Return True/False if focus can be read, else None."""
+    handle = getattr(win, "winHandle", None)
+    if handle is None:
+        return None
+    for attr in ("_has_focus", "has_focus"):
+        if hasattr(handle, attr):
+            try:
+                return bool(getattr(handle, attr))
+            except Exception:
+                continue
+    return None
+
+
+def _restore_window_focus(*, context: str) -> None:
+    """Log focus loss and try to bring the experiment window back."""
+    focused = _window_has_focus()
+    if focused is not False:
+        return
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = f"{stamp}  Window focus lost ({context}); attempting restore."
+    print(message)
+    log_path = globals().get("_log_path")
+    if log_path is not None:
+        _append_session_log(log_path, [message])
+    handle = getattr(win, "winHandle", None)
+    if handle is None:
+        return
+    for method_name in ("activate", "set_visible"):
+        method = getattr(handle, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            if method_name == "set_visible":
+                method(True)
+            else:
+                method()
+        except Exception:
+            continue
+    try:
+        win.winHandle.switch_to()
+    except Exception:
+        pass
+
+
+def _wait_space_or_exit(
+    redraw_stim=None,
+    *,
+    allow_experimenter_skip: bool = False,
+    watch_focus: bool = False,
+    show_mouse: bool = False,
+):
     """Wait for SPACE (return True), ESC (return False), or optional experimenter skip."""
-    if _debug_flag("auto_advance_instructions"):
-        if redraw_stim is not None:
-            redraw_stim.draw()
-            win.flip()
-        _debug_fast_wait()
-        return True
-    while True:
-        if redraw_stim is not None:
-            redraw_stim.draw()
-            win.flip()
-        key_list = [START_KEY, QUIT_KEY]
-        if allow_experimenter_skip:
-            key_list.append(_EXPERIMENTER_SKIP_KEY)
-        keys = event.waitKeys(keyList=key_list, maxWait=0.5)
-        if not keys:
-            continue
-        if keys[0] == START_KEY:
+    if show_mouse:
+        win.setMouseVisible(True)
+    try:
+        if _debug_flag("auto_advance_instructions"):
+            if redraw_stim is not None:
+                redraw_stim.draw()
+                win.flip()
+            _debug_fast_wait()
             return True
-        if allow_experimenter_skip and keys[0] == _EXPERIMENTER_SKIP_KEY:
-            if _experimenter_skip_confirm(
-                "Skip burn-in block?\n\nPress SPACE to continue the block."
-            ):
-                return "skip"
-            continue
-        if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
-            return False
-        if redraw_stim is not None:
-            redraw_stim.draw()
-            win.flip()
+        while True:
+            if watch_focus:
+                _restore_window_focus(context="break/instruction wait")
+            if redraw_stim is not None:
+                redraw_stim.draw()
+                win.flip()
+            key_list = [START_KEY, QUIT_KEY]
+            if allow_experimenter_skip:
+                key_list.append(_EXPERIMENTER_SKIP_KEY)
+            keys = event.waitKeys(keyList=key_list, maxWait=0.5)
+            if not keys:
+                continue
+            if keys[0] == START_KEY:
+                return True
+            if allow_experimenter_skip and keys[0] == _EXPERIMENTER_SKIP_KEY:
+                if _experimenter_skip_confirm(
+                    "Skip burn-in block?\n\nPress SPACE to continue the block."
+                ):
+                    return "skip"
+                continue
+            if keys[0] == QUIT_KEY and _confirm_exit_or_continue():
+                return False
+            if redraw_stim is not None:
+                redraw_stim.draw()
+                win.flip()
+    finally:
+        if show_mouse:
+            win.setMouseVisible(False)
 
 
 def _srb_reconnect_prompt_text(detail: str) -> str:
@@ -4391,7 +4500,9 @@ for trial in trials:
             )
             block_break_text.draw()
             win.flip()
-            if not _wait_space_or_exit(redraw_stim=block_break_text):
+            if not _wait_space_or_exit(
+                redraw_stim=block_break_text, watch_focus=True, show_mouse=True
+            ):
                 _note_session_interrupt(f"participant exited during block break after block {prev_block}")
                 completed_normally = False
                 break
