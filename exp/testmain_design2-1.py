@@ -64,7 +64,7 @@ DEBUG_CONFIG = {
     "simulate_response_box": False,  # Use keyboard instead of serial when self-made box is selected.
     "full_screen": True,
 }
-DEFAULT_PARTICIPANT = "15"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
+DEFAULT_PARTICIPANT = "17"  # Subject number: 1–100, or "test" (dialog pre-fill; color mapping from CSV)
 DEFAULT_MONITOR_NAME = "room1_a4"
 DEFAULT_RESPONSE_DEVICE = RESPONSE_DEVICE_SELF_MADE
 # Focal PM cue: "center_ring" (original orange circle on the colored disk) or "center_disk"
@@ -127,6 +127,8 @@ SRB_DETECTION_WARNING: str | None = None
 REPEAT_DATA_NOTE = ""
 REPEAT_REASON = ""
 DATA_FILE_STEM = ""
+START_FROM_BLOCK = 0
+RESUME_APPEND_EXISTING = False
 AGE = "NA"
 GENDER = "NA"
 PARTICIPATION_DAY = 1
@@ -465,6 +467,33 @@ def _log_trial_problems_if_any(
         _append_session_log(log_path, [f"  Trial {trial_number}: {', '.join(problems)}"])
 
 
+START_FROM_BLOCK_NONE_LABEL = "0, i.e., not skip any block"
+START_FROM_BLOCK_MAX = 10  # covers practice sessions 1–2 (10 blocks)
+
+
+def _start_from_block_choices() -> list[str]:
+    return [START_FROM_BLOCK_NONE_LABEL] + [str(i) for i in range(1, START_FROM_BLOCK_MAX + 1)]
+
+
+def _parse_start_from_block_choice(choice) -> int:
+    text = str(choice).strip()
+    if not text or text.startswith("0"):
+        return 0
+    try:
+        value = int(text.split(",")[0].strip())
+    except ValueError:
+        raise SystemExit(f"Invalid start-from-block choice: {choice!r}")
+    if value < 0 or value > START_FROM_BLOCK_MAX:
+        raise SystemExit(f"Start from block must be between 0 and {START_FROM_BLOCK_MAX}.")
+    return value
+
+
+def _start_from_block_choice_label(block: int) -> str:
+    if block <= 0:
+        return START_FROM_BLOCK_NONE_LABEL
+    return str(int(block))
+
+
 def _max_completed_session(participant: str, out_dir: Path) -> int | None:
     """Highest session number found for this participant, or None."""
     prefix = f"PMCP_subj{participant}_ses"
@@ -481,9 +510,172 @@ def _max_completed_session(participant: str, out_dir: Path) -> int | None:
     return max_session
 
 
+def _list_session_trial_csvs(participant: str, out_dir: Path) -> list[tuple[int, Path]]:
+    """Return (session_number, path) for trial CSVs, newest last within each session."""
+    if not out_dir.is_dir():
+        return []
+    pattern = re.compile(
+        rf"^PMCP_subj{re.escape(str(participant))}_ses(\d+)(?:\(\d+\))?_trials\.csv$"
+    )
+    found: list[tuple[int, Path]] = []
+    for path in out_dir.iterdir():
+        if not path.is_file():
+            continue
+        match = pattern.match(path.name)
+        if match:
+            found.append((int(match.group(1)), path))
+    found.sort(key=lambda item: (item[0], item[1].stat().st_mtime))
+    return found
+
+
+def _latest_trials_csv(participant: str, out_dir: Path) -> tuple[int | None, Path | None]:
+    files = _list_session_trial_csvs(participant, out_dir)
+    if not files:
+        return None, None
+    return files[-1]
+
+
+def _latest_trials_csv_for_session(participant: str, session: int, out_dir: Path) -> Path | None:
+    matches = [path for ses, path in _list_session_trial_csvs(participant, out_dir) if ses == session]
+    return matches[-1] if matches else None
+
+
+def _is_saved_task_row(row: dict) -> bool:
+    if (row.get("TrialType") or "").strip().lower() == "survey":
+        return False
+    if (row.get("SurveyQuestion") or "").strip():
+        return False
+    try:
+        if int(row.get("Block", 0)) == -2:
+            return False
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _task_row_counts_by_block(trials_path: Path) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    try:
+        with open(trials_path, encoding="utf-8", newline="") as fp:
+            reader = csv.DictReader(fp)
+            for row in reader:
+                if not _is_saved_task_row(row):
+                    continue
+                try:
+                    block = int(row.get("Block"))
+                except (TypeError, ValueError):
+                    continue
+                counts[block] = counts.get(block, 0) + 1
+    except Exception:
+        return {}
+    return counts
+
+
+def _expected_trials_for_saved_block(session: int, block: int) -> int:
+    if block == BURNIN_BLOCK_NUMBER:
+        return BURNIN_TRIALS_PER_BLOCK
+    if block == PM_PRACTICE_BLOCK_NUMBER:
+        return TRIALS_PER_BLOCK
+    return get_session_trial_config(session)["n_per_block"]
+
+
+def _analyze_trials_csv_progress(trials_path: Path, session: int) -> dict:
+    """Find the first unfinished block in a saved session CSV."""
+    counts = _task_row_counts_by_block(trials_path)
+    n_main = get_session_trial_config(session)["n_blocks"]
+
+    def unfinished(block: int, label: str, start_from: int) -> dict:
+        expected = _expected_trials_for_saved_block(session, block)
+        got = counts.get(block, 0)
+        return {
+            "incomplete": True,
+            "resume_block": start_from,
+            "resume_block_label": label,
+            "unfinished_block": block,
+            "trials_done_in_block": got,
+            "trials_expected_in_block": expected,
+        }
+
+    if 0 in counts:
+        expected = _expected_trials_for_saved_block(session, 0)
+        if counts[0] < expected:
+            return unfinished(0, "burn-in (block 0)", 0)
+    if -1 in counts:
+        expected = _expected_trials_for_saved_block(session, -1)
+        if counts[-1] < expected:
+            return unfinished(-1, "PM practice", 0)
+
+    for block in range(1, n_main + 1):
+        expected = _expected_trials_for_saved_block(session, block)
+        got = counts.get(block, 0)
+        if got < expected:
+            return unfinished(block, str(block), block)
+
+    return {
+        "incomplete": False,
+        "resume_block": 0,
+        "resume_block_label": "",
+        "unfinished_block": None,
+        "trials_done_in_block": 0,
+        "trials_expected_in_block": 0,
+    }
+
+
+def _detect_session_resume(participant: str, out_dir: Path) -> dict:
+    """Defaults for session number / start-from-block, plus a detection message if any."""
+    last_session, trials_path = _latest_trials_csv(participant, out_dir)
+    empty = {
+        "last_session": last_session,
+        "trials_path": trials_path,
+        "incomplete": False,
+        "suggested_session": 1 if last_session is None else last_session + 1,
+        "suggested_start_block": 0,
+        "resume_block_label": "",
+        "message": "",
+    }
+    if last_session is None or trials_path is None:
+        return empty
+    progress = _analyze_trials_csv_progress(trials_path, last_session)
+    if not progress["incomplete"]:
+        return empty
+    label = progress["resume_block_label"]
+    message = (
+        f"Detected: you did not finish block {label} from last session {last_session}. "
+        "Continue from there?"
+    )
+    return {
+        "last_session": last_session,
+        "trials_path": trials_path,
+        "incomplete": True,
+        "suggested_session": last_session,
+        "suggested_start_block": progress["resume_block"],
+        "resume_block_label": label,
+        "message": message,
+    }
+
+
+def _load_resume_csv_state(trials_path: Path) -> tuple[int, float, list[str]]:
+    """Return (next trial_index, last CumReward, CSV columns) for appending."""
+    with open(trials_path, encoding="utf-8", newline="") as fp:
+        reader = csv.DictReader(fp)
+        fieldnames = list(reader.fieldnames or [])
+        last_trial_n = 0
+        last_cum = 0.0
+        for row in reader:
+            try:
+                last_trial_n = max(last_trial_n, int(row.get("Trial") or 0))
+            except (TypeError, ValueError):
+                pass
+            if _is_saved_task_row(row):
+                try:
+                    last_cum = float(row.get("CumReward") or 0.0)
+                except (TypeError, ValueError):
+                    pass
+    return last_trial_n, last_cum, fieldnames
+
+
 def _suggested_next_session(participant: str, out_dir: Path) -> int:
-    max_session = _max_completed_session(participant, out_dir)
-    return 1 if max_session is None else max_session + 1
+    return _detect_session_resume(participant, out_dir)["suggested_session"]
 
 
 def _most_recent_metadata(participant: str, out_dir: Path) -> dict | None:
@@ -573,12 +765,20 @@ def _confirm_unexpected_session(participant: str, session: int, out_dir: Path) -
 
 
 def _resolve_data_output_paths(
-    participant: str, session: int, out_dir: Path
+    participant: str, session: int, out_dir: Path, *, resume_append: bool = False
 ) -> tuple[Path, Path, str, str, str]:
     """Return trials path, metadata path, file stem, repeat note, repeat reason (empty if not repeat)."""
     base_stem = f"PMCP_subj{participant}_ses{session}"
     trials_path = (out_dir / f"{base_stem}_trials.csv").resolve()
     metadata_path = (out_dir / f"{base_stem}_metadata.json").resolve()
+
+    if resume_append:
+        existing = _latest_trials_csv_for_session(participant, session, out_dir)
+        if existing is not None:
+            stem = existing.name[: -len("_trials.csv")]
+            meta = (out_dir / f"{stem}_metadata.json").resolve()
+            return existing.resolve(), meta, stem, "", ""
+        return trials_path, metadata_path, base_stem, "", ""
 
     if not trials_path.exists() and not metadata_path.exists():
         return trials_path, metadata_path, base_stem, "", ""
@@ -1347,6 +1547,8 @@ def _build_metadata(
             "test_pm_frequency_applied": "Y" if PARTICIPANT == "test" else "N",
             "pm_reward_points": PM_REWARD,
             "pm_key": PM_KEY,
+            "start_from_block": START_FROM_BLOCK,
+            "resume_append_existing": bool(RESUME_APPEND_EXISTING),
             "blocks": n_blocks,
             "main_trials_per_block": n_trials_per_block,
             "total_trials": n_trials_total,
@@ -2427,6 +2629,13 @@ _dialog_default_session = _suggested_next_session(
     _dialog_default_participant,
     _participant_data_dir(_dialog_default_participant),
 )
+_dialog_resume = _detect_session_resume(
+    _dialog_default_participant,
+    _participant_data_dir(_dialog_default_participant),
+)
+_dialog_default_start_from_block = _start_from_block_choice_label(
+    _dialog_resume["suggested_start_block"]
+)
 PARTICIPATION_DAY_LABEL_TO_NUM = {
     "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5,
     "6th": 6, "7th": 7, "8th": 8, "9th": 9, "10th": 10,
@@ -2452,6 +2661,14 @@ session_dlg.addField(
     choices=PARTICIPANT_CHOICES,
 )
 session_dlg.addField("Session", initial=_dialog_default_session)
+if _dialog_resume["message"]:
+    session_dlg.addText(_dialog_resume["message"])
+session_dlg.addField(
+    "Start from block",
+    initial=_dialog_default_start_from_block,
+    choices=_start_from_block_choices(),
+    tip="0 = do not skip any block (run the whole session). 1–N skip earlier finished blocks and start at that block.",
+)
 
 _has_prior_data = bool(_dialog_default_demographics)
 
@@ -2564,36 +2781,37 @@ if PARTICIPANT not in PARTICIPANT_CHOICES:
 SESSION = int(session_dlg.data[1])
 if SESSION < 1 or SESSION > MAX_SESSION:
     raise SystemExit(f"Session must be between 1 and {MAX_SESSION}.")
+START_FROM_BLOCK = _parse_start_from_block_choice(session_dlg.data[2])
 
 # Section 1: required on first session
-AGE = str(session_dlg.data[2]).strip() or "NA"
-GENDER = str(session_dlg.data[3]).strip() or "NA"
+AGE = str(session_dlg.data[3]).strip() or "NA"
+GENDER = str(session_dlg.data[4]).strip() or "NA"
 # Section 2: auto-filled from last session
-HANDEDNESS = str(session_dlg.data[4]).strip() or "NA"
-COLOR_VISION = str(session_dlg.data[5]).strip() or "NA"
-EYE_VISION = str(session_dlg.data[6]).strip() or "NA"
-FIRST_SESSION_OF_DAY = str(session_dlg.data[7]).strip().lower() == "yes"
-_participation_day_label = str(session_dlg.data[8]).strip().lower()
+HANDEDNESS = str(session_dlg.data[5]).strip() or "NA"
+COLOR_VISION = str(session_dlg.data[6]).strip() or "NA"
+EYE_VISION = str(session_dlg.data[7]).strip() or "NA"
+FIRST_SESSION_OF_DAY = str(session_dlg.data[8]).strip().lower() == "yes"
+_participation_day_label = str(session_dlg.data[9]).strip().lower()
 if _participation_day_label not in PARTICIPATION_DAY_LABEL_TO_NUM:
     raise SystemExit(
-        f"Invalid participation day: {session_dlg.data[8]!r}. Choose one of: {list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())}."
+        f"Invalid participation day: {session_dlg.data[9]!r}. Choose one of: {list(PARTICIPATION_DAY_LABEL_TO_NUM.keys())}."
     )
 PARTICIPATION_DAY = PARTICIPATION_DAY_LABEL_TO_NUM[_participation_day_label]
 # Section 3: experimenter only
-SKIP_COLOR_VISION_TEST = str(session_dlg.data[9]).strip().lower() == "yes"
+SKIP_COLOR_VISION_TEST = str(session_dlg.data[10]).strip().lower() == "yes"
 COLOR_KEY_MAPPING_ASSIGNED, COLOR_KEY_MAPPING, COLOR_KEY_MAPPING_OVERRIDDEN = (
-    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[10])
+    _resolve_color_key_mapping_from_dialog(PARTICIPANT, session_dlg.data[11])
 )
 apply_color_key_mapping(COLOR_KEY_MAPPING)
-RESPONSE_DEVICE = session_dlg.data[11]
+RESPONSE_DEVICE = session_dlg.data[12]
 DEVICE_NAME_ASSIGNED, DEVICE_NAME, DEVICE_NAME_OVERRIDDEN = _resolve_device_name_from_dialog(
-    session_dlg.data[12]
+    session_dlg.data[13]
 )
 COLOR_MAP_LAYOUT_ASSIGNED, COLOR_MAP_LAYOUT, COLOR_MAP_LAYOUT_OVERRIDDEN = (
-    _resolve_color_map_layout_from_dialog(PARTICIPANT, session_dlg.data[13])
+    _resolve_color_map_layout_from_dialog(PARTICIPANT, session_dlg.data[14])
 )
-MONITOR_NAME = str(session_dlg.data[14]).strip() or DEFAULT_MONITOR_NAME
-SPECIAL_SESSION_NOTE = str(session_dlg.data[15]).strip()
+MONITOR_NAME = str(session_dlg.data[15]).strip() or DEFAULT_MONITOR_NAME
+SPECIAL_SESSION_NOTE = str(session_dlg.data[16]).strip()
 
 # Collect log entries for any defaults that were manually changed
 _SESSION_START_LOG_EXTRAS: list[str] = []
@@ -2639,16 +2857,28 @@ if _unexpected_session_log_note:
     _SESSION_START_LOG_EXTRAS.append(f"  {_unexpected_session_log_note}")
 
 PARTICIPANT_DATA_DIR = _participant_data_dir(PARTICIPANT)
+_resume_existing = _latest_trials_csv_for_session(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
+RESUME_APPEND_EXISTING = False
+if START_FROM_BLOCK >= 1 and _resume_existing is not None:
+    _existing_progress = _analyze_trials_csv_progress(_resume_existing, SESSION)
+    RESUME_APPEND_EXISTING = bool(_existing_progress["incomplete"])
 (
     _out_trials_path,
     _out_metadata_path,
     DATA_FILE_STEM,
     REPEAT_DATA_NOTE,
     REPEAT_REASON,
-) = _resolve_data_output_paths(PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR)
+) = _resolve_data_output_paths(
+    PARTICIPANT, SESSION, PARTICIPANT_DATA_DIR, resume_append=RESUME_APPEND_EXISTING
+)
 if REPEAT_REASON:
     _SESSION_START_LOG_EXTRAS.append(f"  Repeated run reason: {REPEAT_REASON}")
 _SESSION_START_LOG_EXTRAS.append(f"  Output files: {DATA_FILE_STEM}_trials.csv, {DATA_FILE_STEM}_metadata.json")
+if START_FROM_BLOCK >= 1:
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Start from block {START_FROM_BLOCK} "
+        f"(skipping earlier blocks{'; appending to existing session file' if RESUME_APPEND_EXISTING else ''})"
+    )
 _SESSION_START_LOG_EXTRAS.append(f"  Focal PM style: {FOCAL_PM_STYLE}")
 _SESSION_START_LOG_EXTRAS.append(f"  Nonfocal PM style: {NONFOCAL_PM_STYLE}")
 if PARTICIPANT == "test":
@@ -2684,6 +2914,10 @@ N_TRIALS = len(trials)
 SESSION_TRIAL_CONFIG = get_session_trial_config(SESSION)
 SESSION_N_BLOCKS = max(t["block"] for t in trials) if trials else SESSION_TRIAL_CONFIG["n_blocks"]
 SESSION_TRIALS_PER_BLOCK = SESSION_TRIAL_CONFIG["n_per_block"]
+if START_FROM_BLOCK > SESSION_N_BLOCKS:
+    raise SystemExit(
+        f"Start from block {START_FROM_BLOCK} is past this session's last block ({SESSION_N_BLOCKS})."
+    )
 _block_trial_counts = {}
 for _t in trials:
     _block_trial_counts[_t["block"]] = _t["trial_in_block"]
@@ -3486,6 +3720,19 @@ def _show_session1_first_instruction() -> bool:
     return _show_instruction_with_language_switch(_load_session1_instruction)
 
 
+def _skip_trial_for_start_block(trial: dict) -> bool:
+    """Skip burn-in/PM-practice and fully finished earlier main blocks when resuming."""
+    if START_FROM_BLOCK <= 0:
+        return False
+    try:
+        block = int(trial.get("block"))
+    except (TypeError, ValueError):
+        return False
+    if block < 1:
+        return True
+    return block < START_FROM_BLOCK
+
+
 def _trials_in_block(block_number):
     if block_number == BURNIN_BLOCK_NUMBER:
         return BURNIN_TRIALS_PER_BLOCK
@@ -3570,6 +3817,11 @@ def _maybe_run_session1_ishihara_screening() -> None:
     global COLOR_VISION, ISHIHARA_RESULT
 
     if SESSION != 1:
+        return
+    if START_FROM_BLOCK >= 1:
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Ishihara screening skipped (resuming from block {START_FROM_BLOCK})."
+        )
         return
 
     log_path = ishihara.session_log_path(PARTICIPANT_DATA_DIR, PARTICIPANT)
@@ -3848,7 +4100,7 @@ def _build_survey_row(
 
 def _append_survey_row(row: dict) -> None:
     with open(_out_trials_path, "a", encoding="utf-8", newline="") as fp:
-        writer = csv.DictWriter(fp, fieldnames=csv_columns)
+        writer = csv.DictWriter(fp, fieldnames=csv_columns, extrasaction="ignore", restval="")
         writer.writerow(row)
 
 
@@ -4002,7 +4254,11 @@ def _run_end_of_session_survey(
 
 _maybe_run_session1_ishihara_screening()
 
-if INCLUDE_BURNIN:
+if START_FROM_BLOCK >= 1:
+    _SESSION_START_LOG_EXTRAS.append(
+        f"  Session-start instructions skipped (resuming from block {START_FROM_BLOCK})."
+    )
+elif INCLUDE_BURNIN:
     _burnin_intro_action = _show_burnin_intro_instruction(BURNIN_SOURCE_PHASE)
     if _burnin_intro_action is False:
         win.close()
@@ -4031,6 +4287,22 @@ exp_start_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 session_start_perf = time.perf_counter()
 PARTICIPANT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _log_path = _session_log_path(PARTICIPANT, PARTICIPANT_DATA_DIR)
+if RESUME_APPEND_EXISTING and _out_trials_path.exists():
+    try:
+        trial_index, cum_reward, csv_columns = _load_resume_csv_state(_out_trials_path)
+        if csv_columns:
+            first_trial_save = False
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  Resuming CSV after Trial {trial_index}, CumReward={cum_reward:.2f}."
+        )
+    except Exception as exc:
+        first_trial_save = True
+        csv_columns = None
+        trial_index = 0
+        cum_reward = 0.0
+        _SESSION_START_LOG_EXTRAS.append(
+            f"  WARNING: could not append to existing trials CSV ({exc}); writing a new file."
+        )
 _response_device_log = f"  Response device: {RESPONSE_DEVICE}; device name: {DEVICE_NAME}"
 if simulate_response_box:
     _response_device_log += " (SRB simulated with keyboard)"
@@ -4055,6 +4327,8 @@ print(f"Metadata will be saved to: {_out_metadata_path}")
 
 for trial in trials:
     current_block = trial["block"]
+    if _skip_trial_for_start_block(trial):
+        continue
     if trial.get("burn_in_block"):
         if BURNIN_SKIPPED:
             prev_block = current_block
@@ -4493,7 +4767,7 @@ for trial in trials:
         encoding="utf-8",
         newline="",
     ) as fp:
-        writer = csv.DictWriter(fp, fieldnames=csv_columns)
+        writer = csv.DictWriter(fp, fieldnames=csv_columns, extrasaction="ignore", restval="")
         if first_trial_save:
             writer.writeheader()
             metadata = _build_metadata(
