@@ -24,4 +24,6 @@ Kort sagt: Fortsæt med at vælge farve som hidtil, men hold samtidig øje med d
 
 __________
 
+Se eksemplet øverst til venstre: venstre = et normalt forsøg; højre = et særligt-opgave-forsøg.
+
 Tryk på *space* for at begynde øvelsen.

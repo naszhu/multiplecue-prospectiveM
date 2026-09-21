@@ -3151,24 +3151,33 @@ def _draw_instruction_example_disk(pos, *, color_name: str, reward_value: int, p
             draw_inner_filler_circle(win, pos)
 
 
-def draw_pm_instruction_examples(pm_kind: str):
-    """
-    Draw one normal + one PM example near the bottom of the instruction screen.
+def _window_half_size_deg() -> tuple[float, float]:
+    """Half-width / half-height of the current window in degrees."""
+    w_px = float(win.size[0])
+    h_px = float(win.size[1])
+    width_deg = 2.0 * math.degrees(
+        math.atan((MONITOR_WIDTH_CM / 2.0) / MONITOR_DISTANCE_CM)
+    )
+    if w_px <= 0:
+        return width_deg / 2.0, width_deg * (1080.0 / 1920.0) / 2.0
+    height_deg = width_deg * (h_px / w_px)
+    return width_deg / 2.0, height_deg / 2.0
 
-    Positions keep disks above the monitor bottom (~±13.7 deg half-height on lab 1080p)
-    and below typical instruction wrap height.
-    """
-    example_y = -8.2
-    gap = CIRCLE_RADIUS * 2.6
-    left = (-gap, example_y)
-    right = (gap, example_y)
-    label_y = example_y - CIRCLE_RADIUS - 0.55
+
+def draw_pm_instruction_examples(pm_kind: str):
+    """Draw one normal + one PM example in the top-left corner."""
+    half_w, half_h = _window_half_size_deg()
+    margin = 0.4
+    gap = CIRCLE_RADIUS * 2.55
+    left = (-half_w + CIRCLE_RADIUS + margin, half_h - CIRCLE_RADIUS - margin)
+    right = (left[0] + gap, left[1])
+    label_y = left[1] - CIRCLE_RADIUS - 0.45
     _draw_instruction_example_disk(left, color_name="red", reward_value=2, pm_kind=None)
     _draw_instruction_example_disk(
         right, color_name="blue", reward_value=3, pm_kind=pm_kind
     )
     left_label = "Normal" if pm_kind == "focal" else "Normal (circle)"
-    right_label = "Focal PM (orange circle)" if pm_kind == "focal" else "Nonfocal PM (triangle)"
+    right_label = "Orange circle" if pm_kind == "focal" else "Triangle"
     for text, x in ((left_label, left[0]), (right_label, right[0])):
         visual.TextStim(
             win,
@@ -3176,16 +3185,30 @@ def draw_pm_instruction_examples(pm_kind: str):
             pos=(x, label_y),
             color=COLORS["white"],
             colorSpace=COLOR_SPACE,
-            height=0.35,
+            height=0.32,
             units=USE_UNITS,
         ).draw()
 
 
+# Nudge the instruction block away from the top-left example pair.
+_EXAMPLE_INSTRUCTION_POS_SHIFT_DEG = (2.4, -2.4)
+
+
 def _flip_instruction_frame(*, draw_pm_example: bool = False, pm_example_kind: str | None = None):
-    instructions.draw()
-    if draw_pm_example and pm_example_kind in ("focal", "nonfocal"):
-        draw_pm_instruction_examples(pm_example_kind)
-    win.flip()
+    old_pos = (float(instructions.pos[0]), float(instructions.pos[1]))
+    show_example = draw_pm_example and pm_example_kind in ("focal", "nonfocal")
+    if show_example:
+        instructions.pos = (
+            old_pos[0] + _EXAMPLE_INSTRUCTION_POS_SHIFT_DEG[0],
+            old_pos[1] + _EXAMPLE_INSTRUCTION_POS_SHIFT_DEG[1],
+        )
+    try:
+        instructions.draw()
+        if show_example:
+            draw_pm_instruction_examples(pm_example_kind)
+        win.flip()
+    finally:
+        instructions.pos = old_pos
 
 
 def _confirm_exit_or_continue():

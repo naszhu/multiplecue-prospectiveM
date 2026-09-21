@@ -21,6 +21,6 @@ In summary, continue the main color-choice task as before, while also watching f
 __________
 
 
-See the example below: left = a normal trial; right = a special-task trial.
+See the example in the top left: left = a normal trial; right = a special-task trial.
 
 Press *space* to begin the practice block.
